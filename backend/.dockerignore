@@ -1,0 +1,21 @@
+# Caches y build
+.gradle
+build/
+out/
+
+# Configuración de IDEs
+.idea/
+.vscode/
+*.iml
+
+# Archivos de log
+*.log
+logs/
+
+# Archivos temporales / backups
+*.swp
+*.bak
+*~
+
+# Archivos de sistema
+.DS_Store
