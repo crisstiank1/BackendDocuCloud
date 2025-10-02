@@ -1,40 +1,35 @@
 plugins {
+	// Plugin esencial para aplicaciones Spring Boot
+	id 'org.springframework.boot' version '3.3.1'
+	// Plugin para construir la aplicación en Java
+	id 'io.spring.dependency-management' version '1.1.5'
+	// Plugin de Java estándar
 	id 'java'
-	id 'org.springframework.boot' version '3.5.4'
-	id 'io.spring.dependency-management' version '1.1.7'
 }
 
-group = 'com.example'
+group = 'com.docucloud'
 version = '0.0.1-SNAPSHOT'
-description = 'Backend para el Gestor de Documentos'
 
+// Establece la versión de Java
 java {
-	toolchain {
-		languageVersion = JavaLanguageVersion.of(21)
-	}
-}
-
-configurations {
-	compileOnly {
-		extendsFrom annotationProcessor
-	}
+	sourceCompatibility = '21'
 }
 
 repositories {
+	// Repositorio central de Maven (necesario para las dependencias de Spring)
 	mavenCentral()
 }
 
 dependencies {
-	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-	implementation 'org.springframework.boot:spring-boot-starter-security'
-	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	// Módulo web para construir aplicaciones basadas en Servlet (RESTful APIs)
 	implementation 'org.springframework.boot:spring-boot-starter-web'
-	compileOnly 'org.projectlombok:lombok'
+
+	// Dependencia de desarrollo (opcional, útil para desarrollo local, ignorada en Docker prod)
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
-	runtimeOnly 'org.postgresql:postgresql'
-	annotationProcessor 'org.projectlombok:lombok'
+
+	// Dependencia de testeo para Spring Boot
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testImplementation 'org.springframework.security:spring-security-test'
+	// Plataforma de testeo para Java
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
