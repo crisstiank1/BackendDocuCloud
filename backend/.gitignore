@@ -2,10 +2,11 @@ HELP.md
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar
-!**/src/main/**/build/
-!**/src/test/**/build/
+!/src/main//build/
+!/src/test//build/
 
-### STS ###
+STS
+
 .apt_generated
 .classpath
 .factorypath
@@ -14,24 +15,44 @@ build/
 .springBeans
 .sts4-cache
 bin/
-!**/src/main/**/bin/
-!**/src/test/**/bin/
+!/src/main//bin/
+!/src/test//bin/
 
-### IntelliJ IDEA ###
+IntelliJ IDEA
+
 .idea
 *.iws
 *.iml
 *.ipr
 out/
-!**/src/main/**/out/
-!**/src/test/**/out/
+!/src/main//out/
+!/src/test//out/
 
-### NetBeans ###
+NetBeans
+
 /nbproject/private/
 /nbbuild/
 /dist/
 /nbdist/
 /.nb-gradle/
 
-### VS Code ###
+VS Code
+
 .vscode/
+
+
+Ignora TODOS los archivos de propiedades de Spring Boot en CUALQUIER subdirectorio.
+
+El (**/) significa "en cualquier carpeta".
+
+**/application-dev.properties
+**/application-prod.properties
+**/application-staging.properties
+**/application.properties
+
+¡PERO, NO ignores (anula la regla anterior) para los archivos .example!
+
+Somos explícitos con la ruta para que sea seguro.
+
+!src/main/resources/application-dev.properties.example
+!src/main/resources/application.properties.example
