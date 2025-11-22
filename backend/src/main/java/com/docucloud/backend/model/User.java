@@ -1,165 +1,60 @@
 package com.docucloud.backend.model;
 
-import jakarta.persistence.*; // Usa jakarta.* para Spring Boot 3+
-import java.sql.Timestamp;
-import java.time.Instant; // Mejor para timestamps modernos
+import jakarta.persistence.*;
+import java.time.Instant;
+import java.util.HashSet;
+import java.util.Set;
 
-/**
- * Entidad que representa la tabla 'users' en la base de datos.
- * Incluye campos para la información del usuario y auditoría.
- */
 @Entity
-@Table(name = "users") // Nombre de la tabla en PostgreSQL
+@Table(name = "users", uniqueConstraints = @UniqueConstraint(name = "uk_users_email", columnNames = "email"))
 public class User {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY) // PostgreSQL usa secuencias (IDENTITY)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 100) // Not null, longitud máxima
-    private String name;
-
-    @Column(nullable = false, unique = true, length = 150) // Not null, único, longitud
+    @Column(nullable = false, length = 180)
     private String email;
 
-    @Column(name = "password_hash", nullable = false)
-    private String passwordHash;
+    @Column(nullable = false, length = 120)
+    private String password;
 
-    @Column(name = "is_locked", columnDefinition = "boolean default false") // Valor por defecto en DB
-    private Boolean isLocked = false;
+    @Column(nullable = false)
+    private boolean enabled = true;
 
-    @Column(name = "registration_id")
-    private Integer registrationId; // Corregido a Integer si es el tipo correcto
+    @Column(nullable = false)
+    private Instant createdAt = Instant.now();
 
-    // --- Campos de Auditoría ---
+    @Column(nullable = false)
+    private Instant updatedAt = Instant.now();
 
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Timestamp createdAt;
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<UserRole> roles = new HashSet<>();
 
-    @Column(name = "updated_at", nullable = false)
-    private Timestamp updatedAt;
+    // Nuevos campos para login social
+    @Column(length = 180)
+    private String name; // puede ser null si registro clásico
 
-    @Column(name = "deleted_at")
-    private Timestamp deletedAt; // Para borrado suave
+    @Column(length = 512)
+    private String photoUrl; // puede ser null si registro clásico
 
-    @Column(name = "created_by_id")
-    private Long createdById; // ID del usuario que creó este registro
+    @PreUpdate
+    public void onUpdate() { this.updatedAt = Instant.now(); }
 
-    @Column(name = "updated_by_id")
-    private Long updatedById; // ID del usuario que actualizó por última vez
-
-    // --- Constructor (opcional pero útil) ---
-    public User() {}
-
-    public User(String name, String email, String passwordHash) {
-        this.name = name;
-        this.email = email;
-        this.passwordHash = passwordHash;
-        // Inicializar timestamps en la creación
-        this.createdAt = Timestamp.from(Instant.now());
-        this.updatedAt = Timestamp.from(Instant.now());
-    }
-
-    // --- Getters y Setters (Esenciales para JPA) ---
-    // (Puedes generarlos automáticamente con tu IDE o usar Lombok)
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
-    }
-
-    public String getPasswordHash() {
-        return passwordHash;
-    }
-
-    public void setPasswordHash(String passwordHash) {
-        this.passwordHash = passwordHash;
-    }
-
-    public Boolean getLocked() {
-        return isLocked;
-    }
-
-    public void setLocked(Boolean locked) {
-        isLocked = locked;
-    }
-
-    public Integer getRegistrationId() {
-        return registrationId;
-    }
-
-    public void setRegistrationId(Integer registrationId) {
-        this.registrationId = registrationId;
-    }
-
-    public Timestamp getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(Timestamp createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public Timestamp getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(Timestamp updatedAt) {
-        this.updatedAt = updatedAt;
-    }
-
-    public Timestamp getDeletedAt() {
-        return deletedAt;
-    }
-
-    public void setDeletedAt(Timestamp deletedAt) {
-        this.deletedAt = deletedAt;
-    }
-
-    public Long getCreatedById() {
-        return createdById;
-    }
-
-    public void setCreatedById(Long createdById) {
-        this.createdById = createdById;
-    }
-
-    public Long getUpdatedById() {
-        return updatedById;
-    }
-
-    public void setUpdatedById(Long updatedById) {
-        this.updatedById = updatedById;
-    }
-
-    // --- Métodos de ciclo de vida JPA para actualizar timestamps (opcional) ---
-    @PrePersist // Se ejecuta antes de guardar por primera vez
-    protected void onCreate() {
-        createdAt = Timestamp.from(Instant.now());
-        updatedAt = Timestamp.from(Instant.now());
-    }
-
-    @PreUpdate // Se ejecuta antes de actualizar
-    protected void onUpdate() {
-        updatedAt = Timestamp.from(Instant.now());
-    }
+    // getters/setters
+    public Long getId() { return id; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public Set<UserRole> getRoles() { return roles; }
+    public void setRoles(Set<UserRole> roles) { this.roles = roles; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getPhotoUrl() { return photoUrl; }
+    public void setPhotoUrl(String photoUrl) { this.photoUrl = photoUrl; }
 }

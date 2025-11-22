@@ -1,73 +1,45 @@
 package com.docucloud.backend.model;
 
 import jakarta.persistence.*;
-import java.sql.Timestamp; // Use java.sql.Timestamp for compatibility with DB TIMESTAMP
 import java.time.Instant;
 
-/**
- * Entidad que representa la tabla 'refresh_tokens' en la base de datos.
- * Almacena los refresh tokens generados para los usuarios.
- */
 @Entity
-@Table(name = "refresh_tokens") // Nombre de la tabla en PostgreSQL
+@Table(name = "refresh_tokens",
+        indexes = {
+                @Index(name = "ix_refresh_token_token", columnList = "token"),
+                @Index(name = "ix_refresh_token_user", columnList = "user_id")
+        })
 public class RefreshToken {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @OneToOne // Cada refresh token pertenece a un solo usuario
-    @JoinColumn(name = "user_id", referencedColumnName = "id", nullable = false) // Clave foránea a la tabla 'users'
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false,
+            foreignKey = @ForeignKey(name = "fk_refresh_user"))
     private User user;
 
-    @Column(nullable = false, unique = true) // El token debe ser único
-    private String token; // El UUID del refresh token
+    @Column(nullable = false, length = 512)
+    private String token;
 
-    @Column(name = "expiry_date", nullable = false) // Fecha de expiración del token
-    private Timestamp expiryDate;
+    @Column(nullable = false)
+    private Instant expiryDate;
 
-    // --- Constructor ---
-    public RefreshToken() {}
+    @Column(nullable = false)
+    private boolean revoked = false;
 
-    // --- Getters y Setters ---
+    @Column(nullable = false)
+    private Instant createdAt = Instant.now();
 
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public User getUser() {
-        return user;
-    }
-
-    public void setUser(User user) {
-        this.user = user;
-    }
-
-    public String getToken() {
-        return token;
-    }
-
-    public void setToken(String token) {
-        this.token = token;
-    }
-
-    public Timestamp getExpiryDate() {
-        return expiryDate;
-    }
-
-    public void setExpiryDate(Timestamp expiryDate) {
-        this.expiryDate = expiryDate;
-    }
-
-    /**
-     * Helper method to set expiry date using Instant.
-     * @param expiryInstant The Instant representing the expiry time.
-     */
-    public void setExpiryDateFromInstant(Instant expiryInstant) {
-        this.expiryDate = Timestamp.from(expiryInstant);
-    }
+    // getters/setters
+    public Long getId() { return id; }
+    public User getUser() { return user; }
+    public void setUser(User user) { this.user = user; }
+    public String getToken() { return token; }
+    public void setToken(String token) { this.token = token; }
+    public Instant getExpiryDate() { return expiryDate; }
+    public void setExpiryDate(Instant expiryDate) { this.expiryDate = expiryDate; }
+    public boolean isRevoked() { return revoked; }
+    public void setRevoked(boolean revoked) { this.revoked = revoked; }
+    public Instant getCreatedAt() { return createdAt; }
 }
