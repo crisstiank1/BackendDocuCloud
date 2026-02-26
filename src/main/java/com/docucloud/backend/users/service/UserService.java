@@ -16,6 +16,10 @@ public class UserService {
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
 
+    public boolean existsById(Long userId) {
+        return userRepository.existsById(userId);
+    }
+
     public UserService(UserRepository userRepository, UserRoleRepository userRoleRepository) {
         this.userRepository = userRepository;
         this.userRoleRepository = userRoleRepository;
