@@ -1,9 +1,11 @@
 package com.docucloud.backend.documents.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
+@JsonInclude(JsonInclude.Include.NON_NULL)
 @Table(name = "documents")
 public class Document {
 
@@ -47,6 +49,9 @@ public class Document {
     @PreUpdate
     public void touch() { updatedAt = Instant.now(); }
 
+    @Column(name = "folder_id")
+    private Long folderId;
+
     public Long getId() { return id; }
     public Long getOwnerUserId() { return ownerUserId; }
     public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
@@ -68,4 +73,7 @@ public class Document {
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getDeletedAt() { return deletedAt; }
     public void setDeletedAt(Instant deletedAt) { this.deletedAt = deletedAt; }
+    public Long getFolderId() { return folderId; }
+    public void setFolderId(Long folderId) { this.folderId = folderId; }
+
 }
