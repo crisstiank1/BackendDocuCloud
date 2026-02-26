@@ -23,6 +23,12 @@ configurations {
 	}
 }
 
+bootRun {
+	systemProperty 'spring.profiles.active', 'dev'
+}
+
+
+
 dependencies {
 	// Spring Boot starters
 	implementation 'org.springframework.boot:spring-boot-starter-web'
