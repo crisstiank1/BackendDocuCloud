@@ -79,10 +79,7 @@ public class AuthController {
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest http
     ) {
-        boolean ok = recaptchaService.verify(request.getRecaptchaToken(), http.getRemoteAddr());
-        if (!ok) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
-        }
+
 
         JwtResponse tokens = authService.login(request);
         return ResponseEntity.ok(tokens);
