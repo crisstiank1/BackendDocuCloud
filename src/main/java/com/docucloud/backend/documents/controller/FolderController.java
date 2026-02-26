@@ -62,6 +62,16 @@ public class FolderController {
                 folderService.renameFolder(getUserId(auth), folderId, request));
     }
 
+    @PostMapping("/{folderId}/documents/{docId}")
+    public ResponseEntity<DocumentResponse> moveDocument(
+            @PathVariable Long folderId,
+            @PathVariable Long docId,
+            Authentication auth) {
+        return ResponseEntity.ok(
+                folderService.moveToFolder(getUserId(auth), docId, folderId));
+    }
+
+
     @DeleteMapping("/{folderId}")
     public ResponseEntity<Void> deleteFolder(
             @PathVariable Long folderId,

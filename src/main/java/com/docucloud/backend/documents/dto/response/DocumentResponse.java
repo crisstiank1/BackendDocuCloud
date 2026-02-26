@@ -12,6 +12,7 @@ public record DocumentResponse(
         Long sizeBytes,
         String fileHash,
         DocumentStatus status,
+        Long folderId,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -24,6 +25,7 @@ public record DocumentResponse(
                 d.getSizeBytes() != null ? d.getSizeBytes() : 0L,
                 d.getFileHash() != null ? d.getFileHash() : "",
                 d.getStatus() != null ? d.getStatus() : DocumentStatus.PENDING_UPLOAD,
+                d.getFolderId(),
                 d.getCreatedAt(),
                 d.getUpdatedAt()
         );
