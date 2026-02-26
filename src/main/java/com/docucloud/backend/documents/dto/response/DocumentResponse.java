@@ -16,13 +16,14 @@ public record DocumentResponse(
         Instant updatedAt
 ) {
     public static DocumentResponse from(Document d) {
+        if (d == null) return null;
         return new DocumentResponse(
                 d.getId(),
-                d.getFileName(),
-                d.getMimeType(),
-                d.getSizeBytes(),
-                d.getFileHash(),
-                d.getStatus(),
+                d.getFileName() != null ? d.getFileName() : "",
+                d.getMimeType() != null ? d.getMimeType() : "",
+                d.getSizeBytes() != null ? d.getSizeBytes() : 0L,
+                d.getFileHash() != null ? d.getFileHash() : "",
+                d.getStatus() != null ? d.getStatus() : DocumentStatus.PENDING_UPLOAD,
                 d.getCreatedAt(),
                 d.getUpdatedAt()
         );
