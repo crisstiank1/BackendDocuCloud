@@ -34,7 +34,7 @@ public class AuthService {
     private final JwtUtils jwtUtils;
     private final RefreshTokenService refreshTokenService;
     private final BruteForceProtectionService bruteForceProtectionService;
-
+    // ← ELIMINADO: private String name; (era un campo suelto incorrecto)
 
     public AuthService(UserRepository userRepository,
                        UserRoleRepository userRoleRepository,
@@ -73,9 +73,8 @@ public class AuthService {
     public JwtResponse login(LoginRequest request, String ip) {
         String email = request.getEmail().toLowerCase().trim();
 
-        // Dos llaves: por usuario y por IP (más efectivo)
         String userKey = "user:" + email;
-        String ipKey = "ip:" + ip;
+        String ipKey   = "ip:" + ip;
 
         if (bruteForceProtectionService.isLocked(userKey) || bruteForceProtectionService.isLocked(ipKey)) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Demasiados intentos. Intenta más tarde.");
@@ -85,7 +84,6 @@ public class AuthService {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(email, request.getPassword()));
 
-            // Si autentica OK → limpia contadores
             bruteForceProtectionService.onSuccess(userKey);
             bruteForceProtectionService.onSuccess(ipKey);
 
@@ -96,30 +94,32 @@ public class AuthService {
         }
 
         User user = userRepository.findByEmail(email).orElseThrow();
-        String access = jwtUtils.generateAccessToken(new UserDetailsImpl(user));
+        String access  = jwtUtils.generateAccessToken(new UserDetailsImpl(user));
         String refresh = refreshTokenService.createRefreshToken(user);
 
-        Set<String> roles = user.getRoles().stream().map(r -> r.getRole().name()).collect(Collectors.toSet());
-        return new JwtResponse(access, refresh, user.getId(), user.getEmail(), roles);
+        Set<String> roles = user.getRoles().stream()
+                .map(r -> r.getRole().name())
+                .collect(Collectors.toSet());
+
+
+        return new JwtResponse(access, refresh, user.getId(), user.getEmail(), roles, user.getName());
     }
-
-
 
     @Transactional
     public JwtResponse loginWithGoogle(User user) {
         User managed = userRepository.findByEmailWithRoles(user.getEmail())
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no existe"));
 
-        String access = jwtUtils.generateAccessToken(new UserDetailsImpl(managed));
+        String access  = jwtUtils.generateAccessToken(new UserDetailsImpl(managed));
         String refresh = refreshTokenService.createRefreshToken(managed);
 
         Set<String> roles = managed.getRoles().stream()
                 .map(r -> r.getRole().name())
                 .collect(Collectors.toSet());
 
-        return new JwtResponse(access, refresh, managed.getId(), managed.getEmail(), roles);
-    }
 
+        return new JwtResponse(access, refresh, managed.getId(), managed.getEmail(), roles, managed.getName());
+    }
 
     @Transactional
     public void logout(String email) {
