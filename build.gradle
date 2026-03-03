@@ -45,6 +45,10 @@ dependencies {
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
 
+	// OWASP Protection - Rate Limiting + Redis
+	implementation 'com.bucket4j:bucket4j-core:8.7.0'
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+
 	// OAuth2
 	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
 
