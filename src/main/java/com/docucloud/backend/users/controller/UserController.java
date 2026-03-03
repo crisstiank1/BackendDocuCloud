@@ -1,27 +1,46 @@
 package com.docucloud.backend.users.controller;
 
-import com.docucloud.backend.users.repository.UserRepository;
+import com.docucloud.backend.auth.security.UserDetailsImpl;
+import com.docucloud.backend.users.dto.request.ChangePasswordRequest;
+import com.docucloud.backend.users.dto.request.UpdateProfileRequest;
+import com.docucloud.backend.users.dto.response.UserResponse;
+import com.docucloud.backend.users.service.UserService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/users")
 public class UserController {
 
-    private final UserRepository userRepository;
+    private final UserService userService;
 
-    public UserController(UserRepository userRepository) {
-        this.userRepository = userRepository;
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+
+    private Long getUserId(Authentication auth) {
+        return ((UserDetailsImpl) auth.getPrincipal()).getId();
     }
 
     @GetMapping("/me")
-    public ResponseEntity<?> me(@AuthenticationPrincipal UserDetails principal) {
-        return userRepository.findByEmail(principal.getUsername())
-                .map(u -> ResponseEntity.ok(new MeResponse(u.getId(), u.getEmail(), u.isEnabled())))
-                .orElse(ResponseEntity.notFound().build());
+    public ResponseEntity<UserResponse> getProfile(Authentication auth) {
+        return ResponseEntity.ok(userService.getProfile(getUserId(auth)));
     }
 
-    public record MeResponse(Long id, String email, boolean enabled) {}
+    @PutMapping("/me")
+    public ResponseEntity<UserResponse> updateProfile(
+            @Valid @RequestBody UpdateProfileRequest request,
+            Authentication auth) {
+        return ResponseEntity.ok(userService.updateProfile(getUserId(auth), request));
+    }
+
+    @PutMapping("/me/password")
+    public ResponseEntity<Void> changePassword(
+            @Valid @RequestBody ChangePasswordRequest request,
+            Authentication auth) {
+        userService.changePassword(getUserId(auth), request);
+        return ResponseEntity.noContent().build();
+    }
 }
