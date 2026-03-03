@@ -57,9 +57,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**", "/api/health/**").permitAll()
                         .requestMatchers("/oauth2/**").permitAll()
                         .requestMatchers("/login/oauth2/**").permitAll()
-                        // ← NUEVO: acceso público a enlaces compartidos
+                        .requestMatchers("/api/dev/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/documents/shares/*/access").permitAll()
                         .requestMatchers("/api/users/me").authenticated()
+                        .requestMatchers("/api/dev/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .userDetailsService(userDetailsService)

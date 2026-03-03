@@ -20,6 +20,7 @@ import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
+import com.google.api.client.util.Value;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.Collections;
@@ -41,6 +42,9 @@ public class AuthController {
     private final PasswordResetService passwordResetService;
     private final RecaptchaService recaptchaService;
 
+    @Value("${security.recaptcha.enabled:true}")
+    private boolean recaptchaEnabled;
+
     public AuthController(
             AuthService authService,
             RefreshTokenService refreshTokenService,
@@ -58,33 +62,31 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<MessageResponse> register(
-            @Valid @RequestBody RegisterRequest request,
-            HttpServletRequest http
-    ) {
-        boolean ok = recaptchaService.verify(request.getRecaptchaToken(), http.getRemoteAddr());
+    public ResponseEntity<MessageResponse> register(@Valid @RequestBody RegisterRequest request) {
+        boolean ok = recaptchaService.verify(request.getRecaptchaToken());
         if (!ok) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(new MessageResponse("reCAPTCHA inválido"));
         }
 
         authService.register(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(new MessageResponse("Usuario registrado"));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(new MessageResponse("Usuario registrado"));
     }
-
-
 
     @PostMapping("/login")
-    public ResponseEntity<JwtResponse> login(
-            @Valid @RequestBody LoginRequest request,
-            HttpServletRequest http
-    ) {
+    public ResponseEntity<?> login(HttpServletRequest httpReq, @Valid @RequestBody LoginRequest request) {
+        if (recaptchaEnabled) {
+            boolean ok = recaptchaService.verify(request.getRecaptchaToken());
+            if (!ok) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new MessageResponse("reCAPTCHA inválido"));
+            }
+        }
 
-
-        JwtResponse tokens = authService.login(request);
+        JwtResponse tokens = authService.login(request, httpReq.getRemoteAddr());
         return ResponseEntity.ok(tokens);
     }
-
 
 
     @PostMapping("/refresh")
@@ -129,17 +131,16 @@ public class AuthController {
     }
 
     @PostMapping("/forgot-password")
-    public ResponseEntity<MessageResponse> forgotPassword(
-            @Valid @RequestBody ForgotPasswordRequest req,
-            HttpServletRequest http
-    ) {
-        boolean ok = recaptchaService.verify(req.getRecaptchaToken(), http.getRemoteAddr());
+    public ResponseEntity<MessageResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest req) {
 
-        // Aunque el captcha falle, devolvemos mensaje genérico para no dar señales (y el endpoint ya es “sensible”). [web:329]
-        if (!ok) {
-            return ResponseEntity.ok(new MessageResponse(
-                    "Si el correo existe, enviaremos instrucciones para restablecer tu contraseña."
-            ));
+        // ✅ Solo valida reCAPTCHA si está habilitado (en prod sí, en dev no)
+        if (recaptchaEnabled) {
+            boolean ok = recaptchaService.verify(req.getRecaptchaToken());
+            if (!ok) {
+                return ResponseEntity.ok(new MessageResponse(
+                        "Si el correo existe, enviaremos instrucciones para restablecer tu contraseña."
+                ));
+            }
         }
 
         passwordResetService.requestPasswordReset(req.getEmail());
