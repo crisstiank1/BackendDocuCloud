@@ -59,6 +59,12 @@ public class ShareService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.FORBIDDEN, "No tienes permisos sobre este documento"));
 
+        // RF-32: permission obligatorio
+        if (request.getPermission() == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Debes especificar un permiso: READ o WRITE");
+        }
+
         DocumentShare share = DocumentShare.builder()
                 .documentId(docId)
                 .sharedByUserId(userId)
@@ -74,7 +80,7 @@ public class ShareService {
                                 : null
                 )
                 .revoked(false)
-                .usedCount(0)   // ← inicializar explícito
+                .usedCount(0)
                 .build();
 
         share = shareRepository.save(share);
@@ -104,47 +110,79 @@ public class ShareService {
         log.info("🚫 Share revoked - user={} shareId={}", userId, shareId);
     }
 
-    // ─── 3. Acceder al enlace (sin auth obligatorio) ──────────────────────────
-    public ShareAccessResponse accessShare(UUID shareId, String password) {  // ← ShareAccessResponse, no PresignedUrlResponse
+    // ─── 3. Acceder al enlace (lectura) ───────────────────────────────────────
+    public ShareAccessResponse accessShare(UUID shareId, String password) {
 
-        DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "Enlace inválido o revocado"));
+        DocumentShare share = validateShare(shareId, password);
 
-        // Verificar expiración
-        if (share.getExpiresAt() != null && share.getExpiresAt().isBefore(Instant.now()))
-            throw new ResponseStatusException(HttpStatus.GONE, "Este enlace ha expirado");
-
-        // Verificar contraseña
-        if (share.getPasswordHash() != null) {
-            if (password == null || !passwordEncoder.matches(password, share.getPasswordHash()))
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Contraseña incorrecta");
-        }
-
-        // Obtener documento sin filtro de owner
         Document doc = documentRepository
                 .findByIdAndDeletedAtIsNull(share.getDocumentId())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Documento no disponible"));
 
-        // Incrementar contador
         share.setUsedCount(share.getUsedCount() + 1);
         shareRepository.save(share);
 
-        // Generar presigned URL
         PresignedUrlResponse s3Url = presignService.presignGet(
                 doc.getS3Bucket(),
                 doc.getS3Key(),
                 Duration.ofMinutes(getMinutes)
         );
 
-        log.info("📥 Share accessed - shareId={} usedCount={}", shareId, share.getUsedCount());
+        log.info("📥 Share accessed - shareId={} permission={} usedCount={}",
+                shareId, share.getPermission(), share.getUsedCount());
 
-        // ← s3Url tiene 3 campos: url, expiresAt, method
         return new ShareAccessResponse(
                 s3Url.url(),
                 s3Url.expiresAt(),
                 share.getPermission() == Permission.WRITE
         );
+    }
+
+    // ─── 4. RF-32: URL de escritura (solo WRITE) ──────────────────────────────
+    public PresignedUrlResponse getWriteUrl(UUID shareId, String password,
+                                            String mimeType, Long userId) {
+
+        DocumentShare share = validateShare(shareId, password);
+
+        // RF-32: bloquear si es solo lectura
+        if (share.getPermission() != Permission.WRITE) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN, "Este enlace es solo lectura");
+        }
+
+        Document doc = documentRepository
+                .findByIdAndDeletedAtIsNull(share.getDocumentId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Documento no disponible"));
+
+        log.info("✏️ Write URL generated via share - shareId={} doc={}",
+                shareId, doc.getId());
+
+        return presignService.presignPut(
+                doc.getS3Bucket(),
+                doc.getS3Key(),
+                mimeType,
+                Duration.ofMinutes(getMinutes)
+        );
+    }
+
+    // ─── Helper: validar share ────────────────────────────────────────────────
+    private DocumentShare validateShare(UUID shareId, String password) {
+
+        DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Enlace inválido o revocado"));
+
+        if (share.getExpiresAt() != null && share.getExpiresAt().isBefore(Instant.now()))
+            throw new ResponseStatusException(HttpStatus.GONE, "Este enlace ha expirado");
+
+        if (share.getPasswordHash() != null) {
+            if (password == null || !passwordEncoder.matches(password, share.getPasswordHash()))
+                throw new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED, "Contraseña incorrecta");
+        }
+
+        return share;
     }
 }

@@ -1,14 +1,15 @@
 package com.docucloud.backend.documents.controller;
 
+import com.docucloud.backend.auth.security.UserDetailsImpl;
 import com.docucloud.backend.documents.dto.request.CompleteUploadRequest;
 import com.docucloud.backend.documents.dto.request.InitUploadRequest;
 import com.docucloud.backend.documents.dto.request.ShareRequest;
 import com.docucloud.backend.documents.dto.response.*;
 import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.service.DocumentService;
-import com.docucloud.backend.auth.security.UserDetailsImpl;
 import com.docucloud.backend.documents.service.FolderService;
 import com.docucloud.backend.documents.service.ShareService;
+import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
 import com.docucloud.backend.users.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,11 +17,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
 
@@ -38,12 +37,6 @@ public class DocumentController {
         return ((UserDetailsImpl) auth.getPrincipal()).getId();
     }
 
-    private void validateUserExists(Long userId) {
-        if (!userService.existsById(userId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuario no encontrado");
-        }
-    }
-
     private Page<DocumentResponse> safeMap(Page<Document> page) {
         return page.map(DocumentResponse::from);
     }
@@ -54,7 +47,6 @@ public class DocumentController {
     public ResponseEntity<InitUploadResponse> initUpload(
             @RequestBody InitUploadRequest request,
             Authentication authentication) {
-
         Long userId = getUserId(authentication);
         return ResponseEntity.ok(documentService.initUpload(userId, request));
     }
@@ -64,7 +56,6 @@ public class DocumentController {
             @PathVariable Long documentId,
             @RequestBody CompleteUploadRequest request,
             Authentication authentication) {
-
         Long userId = getUserId(authentication);
         documentService.completeUpload(userId, documentId, request);
         return ResponseEntity.ok().build();
@@ -77,7 +68,6 @@ public class DocumentController {
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
             Pageable pageable,
             Authentication authentication) {
-
         Long userId = getUserId(authentication);
         return ResponseEntity.ok(safeMap(documentService.list(userId, pageable)));
     }
@@ -87,7 +77,6 @@ public class DocumentController {
             @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC)
             Pageable pageable,
             Authentication authentication) {
-
         Long userId = getUserId(authentication);
         return ResponseEntity.ok(safeMap(documentService.getRecentDocuments(userId, pageable)));
     }
@@ -97,7 +86,6 @@ public class DocumentController {
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
             Pageable pageable,
             Authentication authentication) {
-
         Long userId = getUserId(authentication);
         return ResponseEntity.ok(safeMap(documentService.getActivityHistory(userId, pageable)));
     }
@@ -112,10 +100,9 @@ public class DocumentController {
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
             Pageable pageable,
             Authentication authentication) {
-
         Long userId = getUserId(authentication);
-        Page<Document> result = documentService.search(userId, query, mimeType, status, fromDate, toDate, pageable);
-        return ResponseEntity.ok(safeMap(result));
+        return ResponseEntity.ok(safeMap(
+                documentService.search(userId, query, mimeType, status, fromDate, toDate, pageable)));
     }
 
     // ── Descarga ────────────────────────────────────────────────────────────
@@ -124,7 +111,6 @@ public class DocumentController {
     public ResponseEntity<DownloadUrlResponse> getDownloadUrl(
             @PathVariable Long documentId,
             Authentication authentication) {
-
         Long userId = getUserId(authentication);
         return ResponseEntity.ok(documentService.getDownloadUrl(userId, documentId));
     }
@@ -154,6 +140,15 @@ public class DocumentController {
         return ResponseEntity.ok(shareService.accessShare(shareId, password));
     }
 
+    // RF-32: URL de escritura — solo accesible si permission = WRITE
+    @PostMapping("/shares/{shareId}/write-url")
+    public ResponseEntity<PresignedUrlResponse> getWriteUrl(
+            @PathVariable UUID shareId,
+            @RequestParam(required = false) String password,
+            @RequestParam String mimeType) {
+        return ResponseEntity.ok(shareService.getWriteUrl(shareId, password, mimeType, null));
+    }
+
     // ── Carpetas ────────────────────────────────────────────────────────────
 
     @PatchMapping("/{docId}/folder/{folderId}")
@@ -177,7 +172,6 @@ public class DocumentController {
     public ResponseEntity<Void> deleteDocument(
             @PathVariable Long documentId,
             Authentication authentication) {
-
         Long userId = getUserId(authentication);
         documentService.softDelete(userId, documentId);
         return ResponseEntity.noContent().build();
