@@ -5,13 +5,13 @@ import com.docucloud.backend.documents.model.DocumentStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
 import java.time.Instant;
 import java.util.Optional;
 
-public interface DocumentRepository extends JpaRepository<Document, Long> {
+public interface DocumentRepository extends JpaRepository<Document, Long>,
+        JpaSpecificationExecutor<Document> {
 
     // Listar todos del usuario
     Page<Document> findAllByOwnerUserIdAndDeletedAtIsNull(Long ownerUserId, Pageable pageable);
@@ -23,7 +23,6 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     Page<Document> findByOwnerUserIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
             Long ownerUserId, DocumentStatus status, Pageable pageable);
 
-
     // Necesario para accessShare() sin filtro de owner
     Optional<Document> findByIdAndDeletedAtIsNull(Long id);
 
@@ -34,32 +33,6 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     // Documentos sin carpeta
     Page<Document> findByOwnerUserIdAndFolderIdIsNullAndDeletedAtIsNull(
             Long ownerUserId, Pageable pageable);
-
-    // BÚSQUEDA AVANZADA (RF-11, RF-21, RF-22)
-    @Query("""
-        select d from Document d
-        where d.ownerUserId = :ownerId
-          and d.deletedAt is null
-          and (:nameQuery is null or lower(d.fileName) like :nameQuery)
-          and (:mimeType is null or d.mimeType = :mimeType)
-          and (:status is null or d.status = :status)
-          and (:fromDate is null or d.createdAt >= :fromDate)
-          and (:toDate is null or d.createdAt <= :toDate)
-        order by 
-          case when :nameQuery is not null then 
-            case when lower(d.fileName) like :nameQuery then 0 else 1 end 
-          end,
-          d.createdAt desc
-    """)
-    Page<Document> searchDocuments(
-            @Param("ownerId") Long ownerId,
-            @Param("nameQuery") String nameQuery,
-            @Param("mimeType") String mimeType,
-            @Param("status") DocumentStatus status,
-            @Param("fromDate") Instant fromDate,
-            @Param("toDate") Instant toDate,
-            Pageable pageable);
-
 
     // Búsqueda solo por nombre (rápida)
     Page<Document> findByOwnerUserIdAndDeletedAtIsNullAndFileNameContainingIgnoreCaseOrderByCreatedAtDesc(

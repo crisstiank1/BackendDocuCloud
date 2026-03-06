@@ -1,4 +1,4 @@
-package com.docucloud.backend.config.security;
+package com.docucloud.backend.config;
 
 import com.docucloud.backend.config.security.jwt.AuthEntryPointJwt;
 import com.docucloud.backend.config.security.jwt.AuthTokenFilter;
