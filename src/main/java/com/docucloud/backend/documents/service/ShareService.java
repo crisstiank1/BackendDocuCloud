@@ -3,6 +3,7 @@ package com.docucloud.backend.documents.service;
 import com.docucloud.backend.documents.dto.request.ShareRequest;
 import com.docucloud.backend.documents.dto.response.ShareAccessResponse;
 import com.docucloud.backend.documents.dto.response.ShareResponse;
+import com.docucloud.backend.documents.dto.response.ShareSummaryResponse;
 import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.model.DocumentShare;
 import com.docucloud.backend.documents.model.Permission;
@@ -17,6 +18,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
 
 import java.time.Duration;
 import java.time.Instant;
@@ -165,6 +169,13 @@ public class ShareService {
                 mimeType,
                 Duration.ofMinutes(getMinutes)
         );
+    }
+
+    public Page<ShareSummaryResponse> getMyShares(Long userId, boolean includeRevoked, Pageable pageable) {
+        Page<DocumentShare> shares = includeRevoked
+                ? shareRepository.findBySharedByUserIdOrderByCreatedAtDesc(userId, pageable)
+                : shareRepository.findBySharedByUserIdAndRevokedFalseOrderByCreatedAtDesc(userId, pageable);
+        return shares.map(ShareSummaryResponse::from);
     }
 
     // ─── Helper: validar share ────────────────────────────────────────────────
