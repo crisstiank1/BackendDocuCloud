@@ -9,6 +9,7 @@ import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.service.DocumentService;
 import com.docucloud.backend.documents.service.FolderService;
 import com.docucloud.backend.documents.service.ShareService;
+import com.docucloud.backend.documents.dto.response.ShareSummaryResponse;
 import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
 import com.docucloud.backend.users.service.UserService;
 import jakarta.validation.Valid;
@@ -138,6 +139,14 @@ public class DocumentController {
             @PathVariable UUID shareId,
             @RequestParam(required = false) String password) {
         return ResponseEntity.ok(shareService.accessShare(shareId, password));
+    }
+
+    @GetMapping("/shares/mine")
+    public ResponseEntity<Page<ShareSummaryResponse>> getMyShares(
+            @RequestParam(defaultValue = "false") boolean includeRevoked,
+            @PageableDefault(size = 20) Pageable pageable,
+            Authentication auth) {
+        return ResponseEntity.ok(shareService.getMyShares(getUserId(auth), includeRevoked, pageable));
     }
 
     // RF-32: URL de escritura — solo accesible si permission = WRITE

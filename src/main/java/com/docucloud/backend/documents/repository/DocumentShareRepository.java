@@ -2,6 +2,8 @@ package com.docucloud.backend.documents.repository;
 
 import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.model.DocumentShare;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -19,5 +21,11 @@ public interface DocumentShareRepository extends JpaRepository<DocumentShare, UU
 
     // Verificar si un usuario es dueño del share
     Optional<DocumentShare> findByIdAndSharedByUserId(UUID id, Long sharedByUserId);
+
+    // RF-32: shares creados por el usuario (paginado)
+    Page<DocumentShare> findBySharedByUserIdOrderByCreatedAtDesc(Long sharedByUserId, Pageable pageable);
+
+    Page<DocumentShare> findBySharedByUserIdAndRevokedFalseOrderByCreatedAtDesc(
+            Long sharedByUserId, Pageable pageable);
 }
 
