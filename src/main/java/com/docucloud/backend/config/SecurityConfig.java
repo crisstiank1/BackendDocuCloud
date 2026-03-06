@@ -2,6 +2,7 @@ package com.docucloud.backend.config;
 
 import com.docucloud.backend.config.security.jwt.AuthEntryPointJwt;
 import com.docucloud.backend.config.security.jwt.AuthTokenFilter;
+import com.docucloud.backend.config.security.jwt.InactivityFilter;
 import com.docucloud.backend.config.security.oauth.CustomOAuth2UserService;
 import com.docucloud.backend.config.security.oauth.OAuth2SuccessHandler;
 import com.docucloud.backend.auth.security.UserDetailsServiceImpl;
@@ -31,15 +32,18 @@ public class SecurityConfig {
     private final AuthEntryPointJwt unauthorizedHandler;
     private final CustomOAuth2UserService customOAuth2UserService;
     private final OAuth2SuccessHandler oAuth2SuccessHandler;
+    private final InactivityFilter inactivityFilter;
 
     @Autowired
     public SecurityConfig(
             AuthTokenFilter authTokenFilter,
+            InactivityFilter inactivityFilter,
             UserDetailsServiceImpl userDetailsService,
             AuthEntryPointJwt unauthorizedHandler,
             CustomOAuth2UserService customOAuth2UserService,
             OAuth2SuccessHandler oAuth2SuccessHandler) {
         this.authTokenFilter = authTokenFilter;
+        this.inactivityFilter = inactivityFilter;
         this.userDetailsService = userDetailsService;
         this.unauthorizedHandler = unauthorizedHandler;
         this.customOAuth2UserService = customOAuth2UserService;
@@ -60,7 +64,6 @@ public class SecurityConfig {
                         .requestMatchers("/api/dev/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/documents/shares/*/access").permitAll()
                         .requestMatchers("/api/users/me").authenticated()
-                        .requestMatchers("/api/dev/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .userDetailsService(userDetailsService)
@@ -71,7 +74,10 @@ public class SecurityConfig {
                                 .defaultSuccessUrl("/api/oauth2/success", true)
                 );
 
+        // 1° valida el JWT → 2° revisa inactividad
         http.addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterAfter(inactivityFilter, AuthTokenFilter.class);
+
         return http.build();
     }
 
