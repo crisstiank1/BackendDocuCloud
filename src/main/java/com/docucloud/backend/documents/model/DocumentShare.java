@@ -42,4 +42,7 @@ public class DocumentShare {
 
     @CreationTimestamp
     private Instant createdAt;
+
+    @Column(length = 180)
+    private String recipientEmail;
 }

@@ -1,5 +1,6 @@
 package com.docucloud.backend.documents.service;
 
+import com.docucloud.backend.common.service.EmailService;
 import com.docucloud.backend.documents.dto.request.ShareRequest;
 import com.docucloud.backend.documents.dto.response.ShareAccessResponse;
 import com.docucloud.backend.documents.dto.response.ShareResponse;
@@ -13,14 +14,13 @@ import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
 import com.docucloud.backend.storage.s3.service.S3PresignService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-
 
 import java.time.Duration;
 import java.time.Instant;
@@ -35,15 +35,16 @@ public class ShareService {
     private final DocumentShareRepository shareRepository;
     private final S3PresignService presignService;
     private final PasswordEncoder passwordEncoder;
+    private final EmailService emailService;
     private final String baseUrl;
     private final long getMinutes;
 
-    // ← Constructor explícito obligatorio por los @Value
     public ShareService(
             DocumentRepository documentRepository,
             DocumentShareRepository shareRepository,
             S3PresignService presignService,
             PasswordEncoder passwordEncoder,
+            EmailService emailService,
             @Value("${app.base-url}") String baseUrl,
             @Value("${docucloud.aws.s3.presignGetMinutes:10}") long getMinutes
     ) {
@@ -51,6 +52,7 @@ public class ShareService {
         this.shareRepository = shareRepository;
         this.presignService = presignService;
         this.passwordEncoder = passwordEncoder;
+        this.emailService = emailService;
         this.baseUrl = baseUrl;
         this.getMinutes = getMinutes;
     }
@@ -58,16 +60,14 @@ public class ShareService {
     // ─── 1. Crear enlace ──────────────────────────────────────────────────────
     public ShareResponse shareDocument(Long docId, ShareRequest request, Long userId) {
 
-        documentRepository
+        Document doc = documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.FORBIDDEN, "No tienes permisos sobre este documento"));
 
-        // RF-32: permission obligatorio
-        if (request.getPermission() == null) {
+        if (request.getPermission() == null)
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "Debes especificar un permiso: READ o WRITE");
-        }
 
         DocumentShare share = DocumentShare.builder()
                 .documentId(docId)
@@ -85,9 +85,19 @@ public class ShareService {
                 )
                 .revoked(false)
                 .usedCount(0)
+                .recipientEmail(request.getRecipientEmail())  // ✅ fix 1
                 .build();
 
         share = shareRepository.save(share);
+
+        // RF-33: notificar al receptor si se especificó email
+        if (request.getRecipientEmail() != null && !request.getRecipientEmail().isBlank()) {
+            emailService.sendShareGranted(
+                    request.getRecipientEmail(),
+                    doc.getFileName(),                        // ✅ fix 2
+                    share.getPermission().name()
+            );
+        }
 
         String shareUrl = baseUrl + "/api/documents/shares/" + share.getId() + "/access";
 
@@ -107,6 +117,15 @@ public class ShareService {
         if (!share.getSharedByUserId().equals(userId))
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN, "No tienes permisos para revocar este enlace");
+
+        // RF-33: notificar al receptor antes de revocar
+        if (share.getRecipientEmail() != null) {
+            Document doc = documentRepository
+                    .findByIdAndDeletedAtIsNull(share.getDocumentId())
+                    .orElse(null);
+            if (doc != null)
+                emailService.sendShareRevoked(share.getRecipientEmail(), doc.getFileName()); // ✅ fix 3
+        }
 
         share.setRevoked(true);
         shareRepository.save(share);
@@ -149,11 +168,9 @@ public class ShareService {
 
         DocumentShare share = validateShare(shareId, password);
 
-        // RF-32: bloquear si es solo lectura
-        if (share.getPermission() != Permission.WRITE) {
+        if (share.getPermission() != Permission.WRITE)
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN, "Este enlace es solo lectura");
-        }
 
         Document doc = documentRepository
                 .findByIdAndDeletedAtIsNull(share.getDocumentId())
