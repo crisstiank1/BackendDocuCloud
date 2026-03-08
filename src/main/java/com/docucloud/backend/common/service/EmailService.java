@@ -41,4 +41,76 @@ public class EmailService {
         }
     }
 
+    public void sendShareGranted(String to, String documentName, String permission) {
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setTo(to);
+            msg.setFrom(fromEmail);
+            msg.setSubject("[DocuCloud] Documento compartido contigo");
+            msg.setText(
+                    "Se te compartió el documento \"" + documentName + "\" " +
+                            "con permiso de " + permission + ".\n" +
+                            "Inicia sesión para verlo.\n\n" +
+                            "— Equipo DocuCloud"
+            );
+            mailSender.send(msg);
+            log.info("[Email] ✅ Share notificado a: {}", to);
+        } catch (Exception e) {
+            log.error("[Email] ❌ Error enviando shareGranted a {}: {}", to, e.getMessage());
+        }
+    }
+
+    public void sendShareRevoked(String to, String documentName) {
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setTo(to);
+            msg.setFrom(fromEmail);
+            msg.setSubject("[DocuCloud] Acceso a documento revocado");
+            msg.setText(
+                    "Tu acceso al documento \"" + documentName + "\" fue revocado.\n\n" +
+                            "— Equipo DocuCloud"
+            );
+            mailSender.send(msg);
+            log.info("[Email] ✅ Revocación notificada a: {}", to);
+        } catch (Exception e) {
+            log.error("[Email] ❌ Error enviando shareRevoked a {}: {}", to, e.getMessage());
+        }
+    }
+
+    public void sendPermissionChanged(String to, String documentName, String newPermission) {
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setTo(to);
+            msg.setFrom(fromEmail);
+            msg.setSubject("[DocuCloud] Permisos de documento modificados");
+            msg.setText(
+                    "El permiso sobre \"" + documentName + "\" fue cambiado a: " + newPermission + ".\n\n" +
+                            "— Equipo DocuCloud"
+            );
+            mailSender.send(msg);
+            log.info("[Email] ✅ Cambio de permiso notificado a: {}", to);
+        } catch (Exception e) {
+            log.error("[Email] ❌ Error enviando permissionChanged a {}: {}", to, e.getMessage());
+        }
+    }
+
+    public void sendPasswordChanged(String to) {
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setTo(to);
+            msg.setFrom(fromEmail);
+            msg.setSubject("[DocuCloud] Contraseña actualizada");
+            msg.setText(
+                    "Tu contraseña fue cambiada exitosamente.\n" +
+                            "Si no fuiste tú, contacta soporte de inmediato.\n\n" +
+                            "— Equipo DocuCloud"
+            );
+            mailSender.send(msg);
+            log.info("[Email] ✅ Cambio de contraseña notificado a: {}", to);
+        } catch (Exception e) {
+            log.error("[Email] ❌ Error enviando passwordChanged a {}: {}", to, e.getMessage());
+        }
+    }
+
+
 }
