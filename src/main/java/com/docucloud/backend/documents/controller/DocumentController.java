@@ -5,11 +5,9 @@ import com.docucloud.backend.documents.dto.request.CompleteUploadRequest;
 import com.docucloud.backend.documents.dto.request.InitUploadRequest;
 import com.docucloud.backend.documents.dto.request.ShareRequest;
 import com.docucloud.backend.documents.dto.response.*;
-import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.service.DocumentService;
 import com.docucloud.backend.documents.service.FolderService;
 import com.docucloud.backend.documents.service.ShareService;
-import com.docucloud.backend.documents.dto.response.ShareSummaryResponse;
 import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
 import com.docucloud.backend.users.service.UserService;
 import jakarta.validation.Valid;
@@ -38,10 +36,6 @@ public class DocumentController {
         return ((UserDetailsImpl) auth.getPrincipal()).getId();
     }
 
-    private Page<DocumentResponse> safeMap(Page<Document> page) {
-        return page.map(DocumentResponse::from);
-    }
-
     // ── Upload ──────────────────────────────────────────────────────────────
 
     @PostMapping("/upload/init")
@@ -64,22 +58,28 @@ public class DocumentController {
 
     // ── Listado y búsqueda ──────────────────────────────────────────────────
 
+    /**
+     * RF-25: usa listWithFavorites para que cada documento traiga isFavorite.
+     */
     @GetMapping
     public ResponseEntity<Page<DocumentResponse>> listDocuments(
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
             Pageable pageable,
             Authentication authentication) {
         Long userId = getUserId(authentication);
-        return ResponseEntity.ok(safeMap(documentService.list(userId, pageable)));
+        return ResponseEntity.ok(documentService.listWithFavorites(userId, pageable));
     }
 
+    /**
+     * RF-25: panel de documentos recientes con flag isFavorite incluido.
+     */
     @GetMapping("/recent")
     public ResponseEntity<Page<DocumentResponse>> recentDocuments(
             @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC)
             Pageable pageable,
             Authentication authentication) {
         Long userId = getUserId(authentication);
-        return ResponseEntity.ok(safeMap(documentService.getRecentDocuments(userId, pageable)));
+        return ResponseEntity.ok(documentService.getRecentDocumentsWithFavorites(userId, pageable));
     }
 
     @GetMapping("/history")
@@ -88,9 +88,13 @@ public class DocumentController {
             Pageable pageable,
             Authentication authentication) {
         Long userId = getUserId(authentication);
-        return ResponseEntity.ok(safeMap(documentService.getActivityHistory(userId, pageable)));
+        // history reutiliza recent internamente; también enriquecemos con isFavorite
+        return ResponseEntity.ok(documentService.getRecentDocumentsWithFavorites(userId, pageable));
     }
 
+    /**
+     * RF-25: búsqueda avanzada con flag isFavorite en cada resultado.
+     */
     @GetMapping("/search")
     public ResponseEntity<Page<DocumentResponse>> searchDocuments(
             @RequestParam(required = false) String query,
@@ -102,8 +106,8 @@ public class DocumentController {
             Pageable pageable,
             Authentication authentication) {
         Long userId = getUserId(authentication);
-        return ResponseEntity.ok(safeMap(
-                documentService.search(userId, query, mimeType, status, fromDate, toDate, pageable)));
+        return ResponseEntity.ok(documentService.searchWithFavorites(
+                userId, query, mimeType, status, fromDate, toDate, pageable));
     }
 
     // ── Descarga ────────────────────────────────────────────────────────────
@@ -149,7 +153,6 @@ public class DocumentController {
         return ResponseEntity.ok(shareService.getMyShares(getUserId(auth), includeRevoked, pageable));
     }
 
-    // RF-32: URL de escritura — solo accesible si permission = WRITE
     @PostMapping("/shares/{shareId}/write-url")
     public ResponseEntity<PresignedUrlResponse> getWriteUrl(
             @PathVariable UUID shareId,

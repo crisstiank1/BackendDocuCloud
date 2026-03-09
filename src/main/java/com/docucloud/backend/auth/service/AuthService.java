@@ -24,6 +24,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -121,6 +122,11 @@ public class AuthService {
         }
 
         User user = userRepository.findByEmail(email).orElseThrow();
+
+        // ✅ NUEVO: Reiniciar contador de inactividad al login
+        user.setLastActivityAt(Instant.now());
+        userRepository.save(user);
+
         String access  = jwtUtils.generateAccessToken(new UserDetailsImpl(user));
         String refresh = refreshTokenService.createRefreshToken(user);
 
@@ -135,6 +141,7 @@ public class AuthService {
 
         return new JwtResponse(access, refresh, user.getId(), user.getEmail(), roles, user.getName());
     }
+
 
     @Transactional
     public JwtResponse loginWithGoogle(User user) {

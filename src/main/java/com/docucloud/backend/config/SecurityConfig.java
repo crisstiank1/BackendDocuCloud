@@ -64,6 +64,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/dev/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/documents/shares/*/access").permitAll()
                         .requestMatchers("/api/users/me").authenticated()
+                        .requestMatchers("/api/favorites/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 .userDetailsService(userDetailsService)

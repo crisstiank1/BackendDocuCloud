@@ -56,22 +56,26 @@ public class InactivityFilter extends OncePerRequestFilter {
         Instant now = Instant.now();
         Instant lastActivity = user.getLastActivityAt();
 
-        // Si existe lastActivityAt y superó el timeout → rechazar
+        // ✅ NUEVA LÓGICA: solo expulsar si está realmente expirado
+        boolean isExpired = false;
         if (lastActivity != null) {
             long elapsed = now.toEpochMilli() - lastActivity.toEpochMilli();
-            if (elapsed > inactivityTimeoutMs) {
-                SecurityContextHolder.clearContext();
-                sendInactivityError(response);
-                return;
-            }
+            isExpired = elapsed > inactivityTimeoutMs;
         }
 
-        // Actualizar lastActivityAt en cada request válido
+        if (isExpired) {
+            SecurityContextHolder.clearContext();
+            sendInactivityError(response);
+            return;
+        }
+
+        // ✅ SIEMPRE actualizar (incluso si era NULL)
         user.setLastActivityAt(now);
         userRepository.save(user);
 
         filterChain.doFilter(request, response);
     }
+
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
