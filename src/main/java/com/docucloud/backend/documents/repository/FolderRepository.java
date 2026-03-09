@@ -16,4 +16,9 @@ public interface FolderRepository extends JpaRepository<Folder, Long> {
 
     // Verificar nombre duplicado
     boolean existsByOwnerUserIdAndName(Long ownerUserId, String name);
+
+    boolean existsByOwnerUserIdAndParentIdIsNullAndName(Long ownerUserId, String name);  // raíz
+    boolean existsByOwnerUserIdAndParentIdAndName(Long ownerUserId, Long parentId, String name);  // subcarpeta
+    List<Folder> findByOwnerUserIdAndParentIdOrderByNameAsc(Long ownerUserId, Long parentId);
+    List<Folder> findByOwnerUserIdAndParentIdIsNullOrderByNameAsc(Long ownerUserId);  // solo raíz
 }

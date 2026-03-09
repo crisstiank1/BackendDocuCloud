@@ -11,4 +11,5 @@ public class CreateFolderRequest {
     @NotBlank(message = "El nombre no puede estar vacío")
     @Size(max = 100, message = "Nombre máximo 100 caracteres")
     private String name;
+    private Long parentId;
 }

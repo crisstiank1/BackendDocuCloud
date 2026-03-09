@@ -29,27 +29,52 @@ public class FolderService {
     private final FolderRepository folderRepository;
     private final DocumentRepository documentRepository;
 
-    // ─── 1. Crear carpeta ─────────────────────────────────────────────────────
+    // ─── 1. Crear carpeta (RAÍZ O SUBCARPETA) ─────────────────────────────────
     public FolderResponse createFolder(Long userId, CreateFolderRequest request) {
-
-        if (folderRepository.existsByOwnerUserIdAndName(userId, request.getName()))
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Ya existe una carpeta con ese nombre");
 
         Folder folder = new Folder();
         folder.setOwnerUserId(userId);
         folder.setName(request.getName());
 
-        folder = folderRepository.save(folder);
+        // ← NUEVO: Soporte subcarpetas CU-10a-02
+        if (request.getParentId() != null) {
+            // Verificar padre existe y pertenece al usuario
+            Folder parent = folderRepository.findByIdAndOwnerUserId(request.getParentId(), userId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.NOT_FOUND, "Carpeta padre no encontrada"));
 
-        log.info("📁 Folder created - user={} folderId={} name={}", userId, folder.getId(), folder.getName());
+            // ← NUEVO: Profundidad máxima 5 niveles (RN-30)
+            if (calculateDepth(parent) >= 5) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "No se pueden crear carpetas con más de 5 niveles de profundidad");
+            }
+
+            // ← NUEVO: Nombres únicos POR HERMANOS (no global)
+            if (folderRepository.existsByOwnerUserIdAndParentIdAndName(userId, request.getParentId(), request.getName())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Ya existe una subcarpeta con ese nombre en esta carpeta");
+            }
+
+            folder.setParentId(request.getParentId());
+            log.info("📁 Subcarpeta created - user={} folderId={} name={} parentId={}",
+                    userId, folder.getId(), request.getName(), request.getParentId());
+        } else {
+            // Raíz: nombres únicos globales (comportamiento anterior)
+            if (folderRepository.existsByOwnerUserIdAndParentIdIsNullAndName(userId, request.getName())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Ya existe una carpeta raíz con ese nombre");
+            }
+            log.info("📁 Carpeta raíz created - user={} folderId={} name={}", userId, folder.getId(), request.getName());
+        }
+
+        folder = folderRepository.save(folder);
         return FolderResponse.from(folder);
     }
 
-    // ─── 2. Listar carpetas ───────────────────────────────────────────────────
+    // ─── 2. Listar carpetas (SOLO RAÍZ) ──────────────────────────────────────
     @Transactional(readOnly = true)
     public List<FolderResponse> listFolders(Long userId) {
-        return folderRepository.findByOwnerUserIdOrderByNameAsc(userId)
+        return folderRepository.findByOwnerUserIdAndParentIdIsNullOrderByNameAsc(userId)
                 .stream()
                 .map(FolderResponse::from)
                 .collect(Collectors.toList());
@@ -58,8 +83,6 @@ public class FolderService {
     // ─── 3. Documentos de una carpeta ─────────────────────────────────────────
     @Transactional(readOnly = true)
     public Page<DocumentResponse> getDocumentsByFolder(Long userId, Long folderId, Pageable pageable) {
-
-        // Verificar que la carpeta existe y pertenece al usuario
         folderRepository.findByIdAndOwnerUserId(folderId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Carpeta no encontrada"));
@@ -71,7 +94,6 @@ public class FolderService {
 
     // ─── 4. Mover documento a carpeta ─────────────────────────────────────────
     public DocumentResponse moveToFolder(Long userId, Long docId, Long folderId) {
-
         Document doc = documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -90,7 +112,6 @@ public class FolderService {
 
     // ─── 5. Quitar documento de carpeta ───────────────────────────────────────
     public DocumentResponse removeFromFolder(Long userId, Long docId) {
-
         Document doc = documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -103,16 +124,26 @@ public class FolderService {
         return DocumentResponse.from(doc);
     }
 
-    // ─── 6. Renombrar carpeta ─────────────────────────────────────────────────
+    // ─── 6. Renombrar carpeta (por nivel) ─────────────────────────────────────
     public FolderResponse renameFolder(Long userId, Long folderId, RenameFolderRequest request) {
-
         Folder folder = folderRepository.findByIdAndOwnerUserId(folderId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Carpeta no encontrada"));
 
-        if (folderRepository.existsByOwnerUserIdAndName(userId, request.getName()))
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Ya existe una carpeta con ese nombre");
+        // ← NUEVO: validar por nivel (no global)
+        if (folder.getParentId() == null) {
+            // Raíz
+            if (folderRepository.existsByOwnerUserIdAndParentIdIsNullAndName(userId, request.getName())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Ya existe una carpeta raíz con ese nombre");
+            }
+        } else {
+            // Subcarpeta
+            if (folderRepository.existsByOwnerUserIdAndParentIdAndName(userId, folder.getParentId(), request.getName())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Ya existe una subcarpeta con ese nombre en esta carpeta");
+            }
+        }
 
         folder.setName(request.getName());
         folderRepository.save(folder);
@@ -121,14 +152,13 @@ public class FolderService {
         return FolderResponse.from(folder);
     }
 
-    // ─── 7. Eliminar carpeta ──────────────────────────────────────────────────
+    // ─── 7. Eliminar carpeta (desasocia docs) ─────────────────────────────────
     public void deleteFolder(Long userId, Long folderId) {
-
         Folder folder = folderRepository.findByIdAndOwnerUserId(folderId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Carpeta no encontrada"));
 
-        // Desasociar documentos de la carpeta antes de eliminar
+        // Desasociar documentos (no eliminarlos)
         documentRepository.findByOwnerUserIdAndFolderIdAndDeletedAtIsNull(userId, folderId, Pageable.unpaged())
                 .forEach(doc -> {
                     doc.setFolderId(null);
@@ -136,7 +166,19 @@ public class FolderService {
                 });
 
         folderRepository.delete(folder);
-
         log.info("🗑️ Folder deleted - user={} folderId={}", userId, folderId);
+    }
+
+    // ─── 8. UTIL: Calcular profundidad (CU-10a-02) ────────────────────────────
+    private int calculateDepth(Folder folder) {
+        int depth = 0;
+        Long parentId = folder.getParentId();
+        while (parentId != null) {
+            Folder parent = folderRepository.findById(parentId).orElse(null);
+            if (parent == null) break;
+            depth++;
+            parentId = parent.getParentId();
+        }
+        return depth;
     }
 }
