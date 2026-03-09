@@ -3,12 +3,14 @@ package com.docucloud.backend.documents.service;
 import com.docucloud.backend.audit.annotation.Audited;
 import com.docucloud.backend.documents.dto.request.CompleteUploadRequest;
 import com.docucloud.backend.documents.dto.request.InitUploadRequest;
+import com.docucloud.backend.documents.dto.response.DocumentResponse;
 import com.docucloud.backend.documents.dto.response.DownloadUrlResponse;
 import com.docucloud.backend.documents.dto.response.InitUploadResponse;
 import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.model.DocumentStatus;
 import com.docucloud.backend.documents.repository.DocumentRepository;
 import com.docucloud.backend.documents.repository.DocumentSpecification;
+import com.docucloud.backend.favorites.service.FavoriteService;
 import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
 import com.docucloud.backend.storage.s3.service.S3KeyService;
 import com.docucloud.backend.storage.s3.service.S3PresignService;
@@ -25,6 +27,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;  // ← faltaba
 
 @Service
 @Slf4j
@@ -35,6 +39,7 @@ public class DocumentService {
     private final S3KeyService keyService;
     private final S3PresignService presignService;
     private final UserRepository userRepository;
+    private final FavoriteService favoriteService;
 
     private final String bucket;
     private final Duration putDuration;
@@ -46,6 +51,7 @@ public class DocumentService {
             S3KeyService keyService,
             S3PresignService presignService,
             UserRepository userRepository,
+            FavoriteService favoriteService,
             @Value("${docucloud.aws.s3.bucket}") String bucket,
             @Value("${docucloud.aws.s3.presignPutMinutes:10}") long putMinutes,
             @Value("${docucloud.aws.s3.presignGetMinutes:10}") long getMinutes,
@@ -55,6 +61,7 @@ public class DocumentService {
         this.keyService = keyService;
         this.presignService = presignService;
         this.userRepository = userRepository;
+        this.favoriteService = favoriteService;
         this.bucket = bucket;
         this.putDuration = Duration.ofMinutes(putMinutes);
         this.getDuration = Duration.ofMinutes(getMinutes);
@@ -102,10 +109,20 @@ public class DocumentService {
 
     // ─── LISTADO ──────────────────────────────────────────────────────────────
 
+    /** Original – sin cambios, usado por controladores existentes */
     public Page<Document> list(Long userId, Pageable pageable) {
         return repo.findAllByOwnerUserIdAndDeletedAtIsNull(userId, pageable);
     }
 
+    /** RF-25 – Lista paginada enriquecida con flag isFavorite (1 query extra en batch) */
+    @Transactional(readOnly = true)
+    public Page<DocumentResponse> listWithFavorites(Long userId, Pageable pageable) {
+        Page<Document> page = repo.findAllByOwnerUserIdAndDeletedAtIsNull(userId, pageable);
+        Set<Long> favIds = getFavoriteIds(userId, page);
+        return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
+    }
+
+    /** Original – sin cambios */
     public Page<Document> getRecentDocuments(Long userId, Pageable pageable) {
         log.info("🔍 Recent query userId={} pageable={}", userId, pageable);
         Page<Document> page = repo.findByOwnerUserIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
@@ -114,12 +131,22 @@ public class DocumentService {
         return page;
     }
 
+    /** RF-25 – Documentos recientes enriquecidos con flag isFavorite */
+    @Transactional(readOnly = true)
+    public Page<DocumentResponse> getRecentDocumentsWithFavorites(Long userId, Pageable pageable) {
+        Page<Document> page = repo.findByOwnerUserIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
+                userId, DocumentStatus.AVAILABLE, pageable);
+        Set<Long> favIds = getFavoriteIds(userId, page);
+        return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
+    }
+
     public Page<Document> getActivityHistory(Long userId, Pageable pageable) {
         return getRecentDocuments(userId, pageable);
     }
 
     // ─── BÚSQUEDA AVANZADA RF-21/22 ───────────────────────────────────────────
 
+    /** Original – sin cambios */
     public Page<Document> search(
             Long userId,
             String query,
@@ -129,13 +156,9 @@ public class DocumentService {
             String toDate,
             Pageable pageable) {
 
-        // Normalizar nombre
         String nameQuery = (query == null || query.isBlank()) ? null : query.trim();
-
-        // Normalizar mimeType
         String mimeQuery = (mimeType == null || mimeType.isBlank()) ? null : mimeType.trim();
 
-        // Parsear status
         DocumentStatus status = null;
         if (statusParam != null && !statusParam.isBlank()) {
             try {
@@ -148,14 +171,14 @@ public class DocumentService {
             }
         }
 
-        // Parsear fechas
         Instant fromInstant = null;
         if (fromDate != null && !fromDate.isBlank()) {
             try {
                 fromInstant = LocalDate.parse(fromDate.trim())
                         .atStartOfDay(ZoneOffset.UTC).toInstant();
             } catch (Exception e) {
-                throw new IllegalArgumentException("fromDate inválido: '" + fromDate + "' (formato esperado: YYYY-MM-DD)");
+                throw new IllegalArgumentException(
+                        "fromDate inválido: '" + fromDate + "' (formato esperado: YYYY-MM-DD)");
             }
         }
 
@@ -166,15 +189,31 @@ public class DocumentService {
                         .atTime(23, 59, 59, 999_000_000)
                         .atOffset(ZoneOffset.UTC).toInstant();
             } catch (Exception e) {
-                throw new IllegalArgumentException("toDate inválido: '" + toDate + "' (formato esperado: YYYY-MM-DD)");
+                throw new IllegalArgumentException(
+                        "toDate inválido: '" + toDate + "' (formato esperado: YYYY-MM-DD)");
             }
         }
 
-        // ✅ Specification: sin @Query, sin problemas de tipo en Postgres
         return repo.findAll(
                 DocumentSpecification.search(userId, nameQuery, mimeQuery, status, fromInstant, toInstant),
                 pageable
         );
+    }
+
+    /** RF-25 – Búsqueda enriquecida con flag isFavorite */
+    @Transactional(readOnly = true)
+    public Page<DocumentResponse> searchWithFavorites(
+            Long userId,
+            String query,
+            String mimeType,
+            String statusParam,
+            String fromDate,
+            String toDate,
+            Pageable pageable) {
+
+        Page<Document> page = search(userId, query, mimeType, statusParam, fromDate, toDate, pageable);
+        Set<Long> favIds = getFavoriteIds(userId, page);
+        return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
     }
 
     // ─── DOWNLOAD ─────────────────────────────────────────────────────────────
@@ -212,5 +251,16 @@ public class DocumentService {
 
     private void logActivity(Long userId, Long docId, String action) {
         log.info("📋 Activity - user={} doc={} action={}", userId, docId, action);
+    }
+
+    /**
+     * RF-25 – Extrae los IDs de la página actual y consulta favoritos en una
+     * sola query (batch), evitando el problema N+1 al mapear DocumentResponse.
+     */
+    private Set<Long> getFavoriteIds(Long userId, Page<Document> page) {
+        Set<Long> docIds = page.getContent().stream()
+                .map(Document::getId)
+                .collect(Collectors.toSet());
+        return favoriteService.getFavoriteIdsByDocumentIds(userId, docIds);
     }
 }
