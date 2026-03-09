@@ -8,6 +8,7 @@ import com.docucloud.backend.documents.dto.response.*;
 import com.docucloud.backend.documents.service.DocumentService;
 import com.docucloud.backend.documents.service.FolderService;
 import com.docucloud.backend.documents.service.ShareService;
+import com.docucloud.backend.searchhistory.service.SearchHistoryService;
 import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
 import com.docucloud.backend.users.service.UserService;
 import jakarta.validation.Valid;
@@ -29,7 +30,7 @@ public class DocumentController {
 
     private final DocumentService documentService;
     private final ShareService shareService;
-    private final UserService userService;
+    private final SearchHistoryService searchHistoryService;
     private final FolderService folderService;
 
     private Long getUserId(Authentication auth) {
@@ -106,6 +107,11 @@ public class DocumentController {
             Pageable pageable,
             Authentication authentication) {
         Long userId = getUserId(authentication);
+
+        if (query != null && !query.trim().isEmpty()) {
+            searchHistoryService.saveSearch(userId, query);
+        }
+
         return ResponseEntity.ok(documentService.searchWithFavorites(
                 userId, query, mimeType, status, fromDate, toDate, pageable));
     }
