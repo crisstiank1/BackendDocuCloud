@@ -1,31 +1,116 @@
 package com.docucloud.backend.common.service;
 
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
+@Slf4j
 @Service
 public class EmailService {
 
     private final JavaMailSender mailSender;
 
+    // ✅ Lee desde application.properties, no de variable de entorno
+    @Value("${spring.mail.username}")
+    private String fromEmail;
+
     public EmailService(JavaMailSender mailSender) {
         this.mailSender = mailSender;
     }
 
-
     public void sendPasswordResetEmail(String to, String resetUrl) {
-        SimpleMailMessage msg = new SimpleMailMessage();
-        msg.setTo(to);
-        msg.setFrom(System.getenv("SMTP_USERNAME"));
-        msg.setSubject("Recuperación de contraseña");
-        msg.setText(
-                "Recibimos una solicitud para restablecer tu contraseña.\n\n" +
-                        "Abre este enlace para crear una nueva contraseña (expira pronto):\n" +
-                        resetUrl + "\n\n" +
-                        "Si tú no solicitaste esto, ignora este correo."
-        );
-        mailSender.send(msg);
+        log.info("[Email] Preparando correo para: {} desde: {}", to, fromEmail);
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setTo(to);
+            msg.setFrom(fromEmail);
+            msg.setSubject("Recuperación de contraseña - DocuCloud");
+            msg.setText(
+                    "Recibimos una solicitud para restablecer tu contraseña.\n\n" +
+                            "Abre este enlace para crear una nueva contraseña (expira en 15 minutos):\n" +
+                            resetUrl + "\n\n" +
+                            "Si tú no solicitaste esto, ignora este correo."
+            );
+            mailSender.send(msg);
+            log.info("[Email] ✅ Correo enviado exitosamente a: {}", to);
+        } catch (Exception e) {
+            log.error("[Email] ❌ Error enviando correo a {}: {}", to, e.getMessage(), e);
+            throw e; // relanza para que no quede oculto
+        }
     }
-}
 
+    public void sendShareGranted(String to, String documentName, String permission) {
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setTo(to);
+            msg.setFrom(fromEmail);
+            msg.setSubject("[DocuCloud] Documento compartido contigo");
+            msg.setText(
+                    "Se te compartió el documento \"" + documentName + "\" " +
+                            "con permiso de " + permission + ".\n" +
+                            "Inicia sesión para verlo.\n\n" +
+                            "— Equipo DocuCloud"
+            );
+            mailSender.send(msg);
+            log.info("[Email] ✅ Share notificado a: {}", to);
+        } catch (Exception e) {
+            log.error("[Email] ❌ Error enviando shareGranted a {}: {}", to, e.getMessage());
+        }
+    }
+
+    public void sendShareRevoked(String to, String documentName) {
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setTo(to);
+            msg.setFrom(fromEmail);
+            msg.setSubject("[DocuCloud] Acceso a documento revocado");
+            msg.setText(
+                    "Tu acceso al documento \"" + documentName + "\" fue revocado.\n\n" +
+                            "— Equipo DocuCloud"
+            );
+            mailSender.send(msg);
+            log.info("[Email] ✅ Revocación notificada a: {}", to);
+        } catch (Exception e) {
+            log.error("[Email] ❌ Error enviando shareRevoked a {}: {}", to, e.getMessage());
+        }
+    }
+
+    public void sendPermissionChanged(String to, String documentName, String newPermission) {
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setTo(to);
+            msg.setFrom(fromEmail);
+            msg.setSubject("[DocuCloud] Permisos de documento modificados");
+            msg.setText(
+                    "El permiso sobre \"" + documentName + "\" fue cambiado a: " + newPermission + ".\n\n" +
+                            "— Equipo DocuCloud"
+            );
+            mailSender.send(msg);
+            log.info("[Email] ✅ Cambio de permiso notificado a: {}", to);
+        } catch (Exception e) {
+            log.error("[Email] ❌ Error enviando permissionChanged a {}: {}", to, e.getMessage());
+        }
+    }
+
+    public void sendPasswordChanged(String to) {
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setTo(to);
+            msg.setFrom(fromEmail);
+            msg.setSubject("[DocuCloud] Contraseña actualizada");
+            msg.setText(
+                    "Tu contraseña fue cambiada exitosamente.\n" +
+                            "Si no fuiste tú, contacta soporte de inmediato.\n\n" +
+                            "— Equipo DocuCloud"
+            );
+            mailSender.send(msg);
+            log.info("[Email] ✅ Cambio de contraseña notificado a: {}", to);
+        } catch (Exception e) {
+            log.error("[Email] ❌ Error enviando passwordChanged a {}: {}", to, e.getMessage());
+        }
+    }
+
+
+}

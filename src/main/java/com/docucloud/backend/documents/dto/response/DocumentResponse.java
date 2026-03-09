@@ -14,20 +14,28 @@ public record DocumentResponse(
         DocumentStatus status,
         Long folderId,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        boolean isFavorite          // ← NUEVO
 ) {
+    /** Factory sin favoritos – mantiene compatibilidad con código existente */
     public static DocumentResponse from(Document d) {
+        return from(d, false);
+    }
+
+    /** Factory enriquecido – usado al listar con contexto de usuario */
+    public static DocumentResponse from(Document d, boolean isFavorite) {
         if (d == null) return null;
         return new DocumentResponse(
                 d.getId(),
-                d.getFileName() != null ? d.getFileName() : "",
-                d.getMimeType() != null ? d.getMimeType() : "",
+                d.getFileName()  != null ? d.getFileName()  : "",
+                d.getMimeType()  != null ? d.getMimeType()  : "",
                 d.getSizeBytes() != null ? d.getSizeBytes() : 0L,
-                d.getFileHash() != null ? d.getFileHash() : "",
-                d.getStatus() != null ? d.getStatus() : DocumentStatus.PENDING_UPLOAD,
+                d.getFileHash()  != null ? d.getFileHash()  : "",
+                d.getStatus()    != null ? d.getStatus()    : DocumentStatus.PENDING_UPLOAD,
                 d.getFolderId(),
                 d.getCreatedAt(),
-                d.getUpdatedAt()
+                d.getUpdatedAt(),
+                isFavorite
         );
     }
 }

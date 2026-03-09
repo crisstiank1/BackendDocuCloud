@@ -5,10 +5,13 @@ import com.docucloud.backend.auth.repository.PasswordResetTokenRepository;
 import com.docucloud.backend.common.service.EmailService;
 import com.docucloud.backend.users.model.User;
 import com.docucloud.backend.users.repository.UserRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -17,6 +20,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 
+@Slf4j
 @Service
 public class PasswordResetService {
 
@@ -24,7 +28,6 @@ public class PasswordResetService {
     private final PasswordResetTokenRepository tokenRepository;
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
-
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Value("${app.frontend.reset-password-url}")
@@ -47,29 +50,47 @@ public class PasswordResetService {
 
     @Transactional
     public void requestPasswordReset(String email) {
-        var userOpt = userRepository.findByEmail(email);
+        log.info("[Reset] Solicitud recibida para: {}", email);
 
-        // OWASP: respuesta/flujo consistente aunque el usuario no exista (anti-enumeración). [web:329]
-        // Generamos token siempre (trabajo similar) pero solo enviamos correo si existe user.
         String rawToken = generateRawToken();
         String tokenHash = sha256Hex(rawToken);
 
-        if (userOpt.isEmpty()) return;
+        var userOpt = userRepository.findByEmail(email);
+        if (userOpt.isEmpty()) {
+            log.warn("[Reset] Usuario no encontrado para: {}", email);
+            return; // anti-enumeración: no revelamos si existe
+        }
 
         User user = userOpt.get();
-        Instant now = Instant.now();
-        Instant expiresAt = now.plus(Duration.ofMinutes(tokenTtlMinutes));
 
-        PasswordResetToken prt = new PasswordResetToken(tokenHash, user, now, expiresAt);
+        // Invalida tokens pendientes anteriores
+        tokenRepository.deleteByUserAndUsedAtIsNull(user);
+        tokenRepository.flush(); // fuerza el DELETE antes del INSERT
+
+        Instant now = Instant.now();
+        PasswordResetToken prt = new PasswordResetToken(
+                tokenHash, user, now, now.plus(Duration.ofMinutes(tokenTtlMinutes))
+        );
         tokenRepository.save(prt);
 
+        log.info("[Reset] Token guardado en BD para: {}", email);
+
+        // ✅ Envía el correo DESPUÉS del commit de la transacción
+        // Evita que un fallo de email haga rollback del token guardado
         String resetUrl = resetPasswordBaseUrl + "?token=" + rawToken;
-        emailService.sendPasswordResetEmail(user.getEmail(), resetUrl);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                log.info("[Reset] Transacción confirmada, enviando correo a: {}", email);
+                emailService.sendPasswordResetEmail(email, resetUrl);
+            }
+        });
     }
 
     @Transactional
     public void resetPassword(String rawToken, String newPassword) {
         String tokenHash = sha256Hex(rawToken);
+
         PasswordResetToken prt = tokenRepository.findByTokenHash(tokenHash)
                 .orElseThrow(() -> new IllegalArgumentException("Token inválido"));
 
@@ -78,13 +99,15 @@ public class PasswordResetService {
             throw new IllegalArgumentException("Token inválido o expirado");
         }
 
-        User user = prt.getUser();
-        user.setPassword(passwordEncoder.encode(newPassword)); // Spring Security: PasswordEncoder para almacenar seguro. [web:348]
+        prt.getUser().setPassword(passwordEncoder.encode(newPassword));
         prt.markUsed(now);
+        log.info("[Reset] Contraseña actualizada para usuario id: {}", prt.getUser().getId());
     }
 
+    // ─── Utilidades ───────────────────────────────────────────────────
+
     private String generateRawToken() {
-        byte[] bytes = new byte[32]; // 256-bit
+        byte[] bytes = new byte[32];
         secureRandom.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
@@ -97,7 +120,7 @@ public class PasswordResetService {
             for (byte b : digest) sb.append(String.format("%02x", b));
             return sb.toString();
         } catch (Exception e) {
-            throw new IllegalStateException("No se pudo hashear token", e);
+            throw new IllegalStateException("No se pudo hashear el token", e);
         }
     }
 }

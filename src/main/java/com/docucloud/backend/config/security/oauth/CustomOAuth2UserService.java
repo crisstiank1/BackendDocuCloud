@@ -1,5 +1,6 @@
 package com.docucloud.backend.config.security.oauth;
 
+import com.docucloud.backend.users.model.Provider;
 import com.docucloud.backend.users.model.User;
 import com.docucloud.backend.users.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,8 +43,7 @@ public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
                     newUser.setName(name);
                     newUser.setPhotoUrl(picture);
                     newUser.setEnabled(true);
-                    // Si quieres que todo Google login sea USER, asigna roles aquí
-                    // Si ya existen roles, puedes omitir
+                    newUser.setProvider(Provider.GOOGLE);
                     return userRepository.save(newUser);
                 });
 

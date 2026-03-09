@@ -45,6 +45,9 @@ public class User {
     @Column(length = 20, columnDefinition = "VARCHAR(20) DEFAULT 'LOCAL'")
     private Provider provider = Provider.LOCAL;
 
+    @Column
+    private Instant lastActivityAt;
+
     // getters/setters
     public Long getId() { return id; }
     public String getEmail() { return email; }
@@ -63,4 +66,6 @@ public class User {
     public void setPhotoUrl(String photoUrl) { this.photoUrl = photoUrl; }
     public Provider getProvider() { return provider; }
     public void setProvider(Provider provider) { this.provider = provider; }
+    public Instant getLastActivityAt() { return lastActivityAt; }
+    public void setLastActivityAt(Instant lastActivityAt) { this.lastActivityAt = lastActivityAt; }
 }
