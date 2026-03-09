@@ -6,6 +6,7 @@ import java.time.Instant;
 public record FolderResponse(
         Long id,
         String name,
+        Long parentId,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -13,6 +14,7 @@ public record FolderResponse(
         return new FolderResponse(
                 folder.getId(),
                 folder.getName(),
+                folder.getParentId(),
                 folder.getCreatedAt(),
                 folder.getUpdatedAt()
         );
