@@ -17,6 +17,9 @@ public class Folder {
     @Column(name = "name", nullable = false)
     private String name;
 
+    @Column(name = "parent_id")
+    private Long parentId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -33,4 +36,6 @@ public class Folder {
     public void setName(String name) { this.name = name; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public Long getParentId() { return parentId; }
+    public void setParentId(Long parentId) { this.parentId = parentId; }
 }
