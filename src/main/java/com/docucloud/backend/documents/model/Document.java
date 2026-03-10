@@ -1,12 +1,18 @@
 package com.docucloud.backend.documents.model;
 
+import com.docucloud.backend.tags.model.Tag;  // ← NUEVO IMPORT
 import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
 import java.time.Instant;
+import java.util.HashSet;
+import java.util.Set;
 
 @Entity
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @Table(name = "documents")
+@Getter @Setter
 public class Document {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -46,34 +52,20 @@ public class Document {
     @Column(name="deleted_at")
     private Instant deletedAt;
 
-    @PreUpdate
-    public void touch() { updatedAt = Instant.now(); }
-
     @Column(name = "folder_id")
     private Long folderId;
 
-    public Long getId() { return id; }
-    public Long getOwnerUserId() { return ownerUserId; }
-    public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
-    public String getFileName() { return fileName; }
-    public void setFileName(String fileName) { this.fileName = fileName; }
-    public String getMimeType() { return mimeType; }
-    public void setMimeType(String mimeType) { this.mimeType = mimeType; }
-    public Long getSizeBytes() { return sizeBytes; }
-    public void setSizeBytes(Long sizeBytes) { this.sizeBytes = sizeBytes; }
-    public String getFileHash() { return fileHash; }
-    public void setFileHash(String fileHash) { this.fileHash = fileHash; }
-    public String getS3Bucket() { return s3Bucket; }
-    public void setS3Bucket(String s3Bucket) { this.s3Bucket = s3Bucket; }
-    public String getS3Key() { return s3Key; }
-    public void setS3Key(String s3Key) { this.s3Key = s3Key; }
-    public DocumentStatus getStatus() { return status; }
-    public void setStatus(DocumentStatus status) { this.status = status; }
-    public Instant getCreatedAt() { return createdAt; }
-    public Instant getUpdatedAt() { return updatedAt; }
-    public Instant getDeletedAt() { return deletedAt; }
-    public void setDeletedAt(Instant deletedAt) { this.deletedAt = deletedAt; }
-    public Long getFolderId() { return folderId; }
-    public void setFolderId(Long folderId) { this.folderId = folderId; }
+    // ← NUEVA RELACIÓN TAGS
+    @ManyToMany
+    @JoinTable(
+            name = "document_tags",
+            joinColumns = @JoinColumn(name = "document_id"),
+            inverseJoinColumns = @JoinColumn(name = "tag_id")
+    )
+    private Set<Tag> tags = new HashSet<>();
 
+    @PreUpdate
+    public void touch() {
+        updatedAt = Instant.now();
+    }
 }

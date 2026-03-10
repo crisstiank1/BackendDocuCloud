@@ -10,7 +10,7 @@ import com.docucloud.backend.documents.service.FolderService;
 import com.docucloud.backend.documents.service.ShareService;
 import com.docucloud.backend.searchhistory.service.SearchHistoryService;
 import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
-import com.docucloud.backend.users.service.UserService;
+import com.docucloud.backend.tags.dto.response.TagResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -21,6 +21,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -165,6 +166,27 @@ public class DocumentController {
             @RequestParam(required = false) String password,
             @RequestParam String mimeType) {
         return ResponseEntity.ok(shareService.getWriteUrl(shareId, password, mimeType, null));
+    }
+
+    //
+    @GetMapping("/{id}/tags")
+    public List<TagResponse> getDocumentTags(@PathVariable Long id, Authentication auth) {
+        Long userId = getUserId(auth);  // Tu método existente
+        return documentService.getDocumentTags(id, userId);
+    }
+
+    @PutMapping("/{id}/tags/{tagId}")
+    public ResponseEntity<Void> addTag(@PathVariable Long id, @PathVariable Long tagId, Authentication auth) {
+        Long userId = getUserId(auth);
+        documentService.addTagToDocument(id, tagId, userId);
+        return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/{id}/tags/{tagId}")
+    public ResponseEntity<Void> removeTag(@PathVariable Long id, @PathVariable Long tagId, Authentication auth) {
+        Long userId = getUserId(auth);
+        documentService.removeTagFromDocument(id, tagId, userId);
+        return ResponseEntity.noContent().build();
     }
 
     // ── Carpetas ────────────────────────────────────────────────────────────
