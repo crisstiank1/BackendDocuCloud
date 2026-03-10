@@ -8,14 +8,21 @@ import com.docucloud.backend.documents.dto.response.DownloadUrlResponse;
 import com.docucloud.backend.documents.dto.response.InitUploadResponse;
 import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.model.DocumentStatus;
+import com.docucloud.backend.documents.model.DocumentTag;
+import com.docucloud.backend.documents.model.DocumentTagId;
 import com.docucloud.backend.documents.repository.DocumentRepository;
 import com.docucloud.backend.documents.repository.DocumentSpecification;
+import com.docucloud.backend.documents.repository.DocumentTagRepository;
 import com.docucloud.backend.favorites.service.FavoriteService;
 import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
 import com.docucloud.backend.storage.s3.service.S3KeyService;
 import com.docucloud.backend.storage.s3.service.S3PresignService;
+import com.docucloud.backend.tags.dto.response.TagResponse;
+import com.docucloud.backend.tags.model.Tag;
+import com.docucloud.backend.tags.repository.TagRepository;
 import com.docucloud.backend.users.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +34,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;  // ← faltaba
 
@@ -34,6 +42,8 @@ import java.util.stream.Collectors;  // ← faltaba
 @Slf4j
 @Transactional
 public class DocumentService {
+    @Autowired private TagRepository tagRepository;           // ← AGREGAR
+    @Autowired private DocumentTagRepository documentTagRepository;
 
     private final DocumentRepository repo;
     private final S3KeyService keyService;
@@ -245,6 +255,49 @@ public class DocumentService {
         repo.save(doc);
 
         logActivity(userId, docId, "DELETED");
+    }
+
+
+
+    @Transactional
+    public void addTagToDocument(Long documentId, Long tagId, Long userId) {
+        // 1. Validar que el documento existe y pertenece al usuario
+        Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(documentId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("Document not found or access denied"));
+
+        // 2. Validar que el tag existe
+        Tag tag = tagRepository.findById(tagId)
+                .orElseThrow(() -> new IllegalArgumentException("Tag not found"));
+
+        // 3. Crear el ID compuesto usando los valores Long (según el ajuste en DocumentTagId)
+        DocumentTagId id = new DocumentTagId(documentId, tagId);
+
+        // 4. Verificar si la relación ya existe para evitar duplicados
+        if (documentTagRepository.existsById(id)) {
+            log.info("🏷️ Tag {} already associated with document {}", tagId, documentId);
+            return;
+        }
+
+        // 5. Crear y guardar la nueva asociación
+        DocumentTag docTag = DocumentTag.builder()
+                .document(doc)
+                .tag(tag)
+                .build();
+
+        documentTagRepository.save(docTag);
+        log.info("✅ Tag '{}' added to document '{}'", tag.getName(), doc.getFileName());
+    }
+
+    @Transactional
+    public void removeTagFromDocument(Long documentId, Long tagId, Long userId) {
+        Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(documentId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+        documentTagRepository.deleteByDocumentIdAndTagId(documentId, tagId);
+    }
+    public List<TagResponse> getDocumentTags(Long documentId, Long userId) {
+        return documentTagRepository.findByDocumentId(documentId)
+                .stream().map(dt -> new TagResponse(dt.getTag().getId(), dt.getTag().getName()))
+                .collect(Collectors.toList());
     }
 
     // ─── HELPERS ──────────────────────────────────────────────────────────────
