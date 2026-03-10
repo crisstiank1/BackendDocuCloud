@@ -1,4 +1,4 @@
-package com.docucloud.backend.searchhistory.model;
+package com.docucloud.backend.search.model;
 
 import com.docucloud.backend.users.model.User;
 import jakarta.persistence.*;
@@ -25,6 +25,10 @@ public class SearchHistory {
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
+    public String getUserId() {
+        return user != null ? user.getId().toString() : null;
+    }
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
@@ -34,5 +38,10 @@ public class SearchHistory {
         if (createdAt == null) {
             createdAt = Instant.now();
         }
+    }
+
+    @PreRemove
+    public void preRemove() {
+        // Cleanup
     }
 }

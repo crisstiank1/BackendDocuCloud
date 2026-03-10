@@ -8,7 +8,7 @@ import com.docucloud.backend.documents.dto.response.*;
 import com.docucloud.backend.documents.service.DocumentService;
 import com.docucloud.backend.documents.service.FolderService;
 import com.docucloud.backend.documents.service.ShareService;
-import com.docucloud.backend.searchhistory.service.SearchHistoryService;
+import com.docucloud.backend.search.service.SearchHistoryService;
 import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
 import com.docucloud.backend.tags.dto.response.TagResponse;
 import jakarta.validation.Valid;
