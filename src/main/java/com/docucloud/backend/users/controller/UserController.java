@@ -7,8 +7,11 @@ import com.docucloud.backend.users.dto.response.UserResponse;
 import com.docucloud.backend.users.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/users")
@@ -42,5 +45,21 @@ public class UserController {
             Authentication auth) {
         userService.changePassword(getUserId(auth), request);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{id}/limits")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<UserResponse> updateLimits(
+            @PathVariable Long id,
+            @RequestBody Map<String, Integer> limits,
+            Authentication auth) {
+
+        Long adminId = ((UserDetailsImpl) auth.getPrincipal()).getId();
+        return ResponseEntity.ok(userService.updateLimits(
+                adminId, id,
+                limits.get("maxFolders"),
+                limits.get("maxTags"),
+                limits.get("maxFavorites")
+        ));
     }
 }
