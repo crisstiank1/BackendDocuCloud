@@ -1,12 +1,18 @@
 package com.docucloud.backend.users.model;
 
 import jakarta.persistence.*;
+import lombok.*;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 
 @Entity
 @Table(name = "users", uniqueConstraints = @UniqueConstraint(name = "uk_users_email", columnNames = "email"))
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder(toBuilder = true)  // ← Útil para updates inmutables
 public class User {
 
     @Id
@@ -28,18 +34,15 @@ public class User {
     @Column(nullable = false)
     private Instant updatedAt = Instant.now();
 
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<UserRole> roles = new HashSet<>();
 
-    // Nuevos campos para login social
+    // Social login
     @Column(length = 180)
-    private String name; // puede ser null si registro clásico
+    private String name;
 
     @Column(length = 512)
-    private String photoUrl; // puede ser null si registro clásico
-
-    @PreUpdate
-    public void onUpdate() { this.updatedAt = Instant.now(); }
+    private String photoUrl;
 
     @Enumerated(EnumType.STRING)
     @Column(length = 20, columnDefinition = "VARCHAR(20) DEFAULT 'LOCAL'")
@@ -48,24 +51,38 @@ public class User {
     @Column
     private Instant lastActivityAt;
 
-    // getters/setters
-    public Long getId() { return id; }
-    public String getEmail() { return email; }
-    public void setEmail(String email) { this.email = email; }
-    public String getPassword() { return password; }
-    public void setPassword(String password) { this.password = password; }
-    public boolean isEnabled() { return enabled; }
-    public void setEnabled(boolean enabled) { this.enabled = enabled; }
-    public Instant getCreatedAt() { return createdAt; }
-    public Instant getUpdatedAt() { return updatedAt; }
-    public Set<UserRole> getRoles() { return roles; }
-    public void setRoles(Set<UserRole> roles) { this.roles = roles; }
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public String getPhotoUrl() { return photoUrl; }
-    public void setPhotoUrl(String photoUrl) { this.photoUrl = photoUrl; }
-    public Provider getProvider() { return provider; }
-    public void setProvider(Provider provider) { this.provider = provider; }
-    public Instant getLastActivityAt() { return lastActivityAt; }
-    public void setLastActivityAt(Instant lastActivityAt) { this.lastActivityAt = lastActivityAt; }
+    // ⭐ LÍMITES RF-27
+    @Column(nullable = false, columnDefinition = "integer default 20")
+    private Integer maxFolders = 20;
+
+    @Column(nullable = false, columnDefinition = "integer default 50")
+    private Integer maxTags = 50;
+
+    @Column(nullable = false, columnDefinition = "integer default 100")
+    private Integer maxFavorites = 100;
+
+    @PrePersist
+    public void prePersist() {
+        if (createdAt == null) createdAt = Instant.now();
+        if (updatedAt == null) updatedAt = Instant.now();
+    }
+
+    @PreUpdate
+    public void preUpdate() {
+        this.updatedAt = Instant.now();
+    }
+
+    // Convenience methods RF-27
+    public boolean canCreateFolder(long currentFolders) {
+        return currentFolders < getMaxFolders();
+    }
+
+    public boolean canCreateTag(long currentTags) {
+        return currentTags < getMaxTags();
+    }
+
+    public boolean canAddFavorite(long currentFavorites) {
+        return currentFavorites < getMaxFavorites();
+    }
+
 }

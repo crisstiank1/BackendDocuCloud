@@ -1,13 +1,20 @@
 package com.docucloud.backend.users.model;
 
 import jakarta.persistence.*;
+import lombok.*;
 
 @Entity
 @Table(name = "user_roles",
         uniqueConstraints = @UniqueConstraint(name = "uk_user_role", columnNames = {"user_id", "role"}))
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class UserRole {
 
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -18,11 +25,4 @@ public class UserRole {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
     private Role role;
-
-    // getters/setters
-    public Long getId() { return id; }
-    public User getUser() { return user; }
-    public void setUser(User user) { this.user = user; }
-    public Role getRole() { return role; }
-    public void setRole(Role role) { this.role = role; }
 }
