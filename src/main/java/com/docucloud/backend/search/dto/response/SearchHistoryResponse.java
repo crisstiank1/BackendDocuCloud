@@ -1,4 +1,4 @@
-package com.docucloud.backend.searchhistory.dto.response;
+package com.docucloud.backend.search.dto.response;
 
 import lombok.Builder;
 import lombok.Getter;

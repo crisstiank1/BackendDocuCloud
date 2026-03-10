@@ -1,14 +1,15 @@
-package com.docucloud.backend.searchhistory.controller;
+package com.docucloud.backend.search.controller;
 
 import com.docucloud.backend.auth.security.UserDetailsImpl;
-import com.docucloud.backend.searchhistory.dto.response.SearchHistoryResponse;
-import com.docucloud.backend.searchhistory.service.SearchHistoryService;
+import com.docucloud.backend.search.dto.response.SearchHistoryResponse;
+import com.docucloud.backend.search.service.SearchHistoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/search-history")
@@ -19,6 +20,19 @@ public class SearchHistoryController {
 
     private Long getUserId(Authentication auth) {
         return ((UserDetailsImpl) auth.getPrincipal()).getId();
+    }
+
+    @GetMapping("/suggestions")
+    public ResponseEntity<Map<String, Object>> getSuggestions(
+            Authentication auth, @RequestParam String prefix) {
+        Long userId = getUserId(auth);
+        List<String> suggestions = searchHistoryService.getSuggestions(userId, prefix);
+
+        return ResponseEntity.ok(Map.of(
+                "suggestions", suggestions,
+                "count", suggestions.size(),
+                "prefix", prefix
+        ));
     }
 
     @GetMapping
