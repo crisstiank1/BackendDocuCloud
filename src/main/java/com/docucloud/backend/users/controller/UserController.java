@@ -4,6 +4,7 @@ import com.docucloud.backend.auth.security.UserDetailsImpl;
 import com.docucloud.backend.users.dto.request.ChangePasswordRequest;
 import com.docucloud.backend.users.dto.request.UpdateProfileRequest;
 import com.docucloud.backend.users.dto.response.UserResponse;
+import com.docucloud.backend.users.model.User;
 import com.docucloud.backend.users.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -60,6 +61,29 @@ public class UserController {
                 limits.get("maxFolders"),
                 limits.get("maxTags"),
                 limits.get("maxFavorites")
+        ));
+    }
+
+    @GetMapping("/{id}/limits")
+    @PreAuthorize("hasRole('ADMIN') or #id == authentication.principal.id")
+    public ResponseEntity<Map<String, Object>> getLimits(
+            @PathVariable Long id,
+            Authentication auth) {
+
+        User user = userService.findById(id);
+        Long currentUserId = getUserId(auth);
+
+        // Solo admin o propio
+        if (!auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN")) &&
+                !currentUserId.equals(id)) {
+            return ResponseEntity.status(403).build();
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "maxFolders", user.getMaxFolders(),
+                "maxTags", user.getMaxTags(),
+                "maxFavorites", user.getMaxFavorites(),
+                "currentUserId", currentUserId
         ));
     }
 }
