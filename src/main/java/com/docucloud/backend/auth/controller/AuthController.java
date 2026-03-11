@@ -63,10 +63,12 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<MessageResponse> register(@Valid @RequestBody RegisterRequest request) {
-        boolean ok = recaptchaService.verify(request.getRecaptchaToken());
-        if (!ok) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(new MessageResponse("reCAPTCHA inválido"));
+        if (recaptchaEnabled) {
+            boolean ok = recaptchaService.verify(request.getRecaptchaToken());
+            if (!ok) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new MessageResponse("reCAPTCHA inválido"));
+            }
         }
 
         authService.register(request);
@@ -133,7 +135,6 @@ public class AuthController {
     @PostMapping("/forgot-password")
     public ResponseEntity<MessageResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest req) {
 
-        // ✅ Solo valida reCAPTCHA si está habilitado (en prod sí, en dev no)
         if (recaptchaEnabled) {
             boolean ok = recaptchaService.verify(req.getRecaptchaToken());
             if (!ok) {
