@@ -64,8 +64,9 @@ public class Document {
     )
     private Set<Tag> tags = new HashSet<>();
 
+    @PrePersist
+    void prePersist() { createdAt = Instant.now(); updatedAt = Instant.now(); }
+
     @PreUpdate
-    public void touch() {
-        updatedAt = Instant.now();
-    }
+    void preUpdate() { updatedAt = Instant.now(); }
 }

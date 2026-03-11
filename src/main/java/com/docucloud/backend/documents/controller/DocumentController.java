@@ -34,69 +34,45 @@ public class DocumentController {
     private final SearchHistoryService searchHistoryService;
     private final FolderService folderService;
 
+    // Helper centralizado para obtener el ID del usuario
     private Long getUserId(Authentication auth) {
         return ((UserDetailsImpl) auth.getPrincipal()).getId();
     }
 
-    // ── Upload ──────────────────────────────────────────────────────────────
+    // ── UPLOAD ──────────────────────────────────────────────────────────────
 
     @PostMapping("/upload/init")
     public ResponseEntity<InitUploadResponse> initUpload(
-            @RequestBody InitUploadRequest request,
-            Authentication authentication) {
-        Long userId = getUserId(authentication);
-        return ResponseEntity.ok(documentService.initUpload(userId, request));
+            @RequestBody @Valid InitUploadRequest request,
+            Authentication auth) {
+        return ResponseEntity.ok(documentService.initUpload(getUserId(auth), request));
     }
 
     @PostMapping("/{documentId}/upload/complete")
     public ResponseEntity<Void> completeUpload(
             @PathVariable Long documentId,
-            @RequestBody CompleteUploadRequest request,
-            Authentication authentication) {
-        Long userId = getUserId(authentication);
-        documentService.completeUpload(userId, documentId, request);
+            @RequestBody @Valid CompleteUploadRequest request,
+            Authentication auth) {
+        documentService.completeUpload(getUserId(auth), documentId, request);
         return ResponseEntity.ok().build();
     }
 
-    // ── Listado y búsqueda ──────────────────────────────────────────────────
+    // ── LISTADO Y BÚSQUEDA (RF-25 FAVORITOS) ────────────────────────────────
 
-    /**
-     * RF-25: usa listWithFavorites para que cada documento traiga isFavorite.
-     */
     @GetMapping
     public ResponseEntity<Page<DocumentResponse>> listDocuments(
-            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
-            Pageable pageable,
-            Authentication authentication) {
-        Long userId = getUserId(authentication);
-        return ResponseEntity.ok(documentService.listWithFavorites(userId, pageable));
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
+            Authentication auth) {
+        return ResponseEntity.ok(documentService.listWithFavorites(getUserId(auth), pageable));
     }
 
-    /**
-     * RF-25: panel de documentos recientes con flag isFavorite incluido.
-     */
     @GetMapping("/recent")
     public ResponseEntity<Page<DocumentResponse>> recentDocuments(
-            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC)
-            Pageable pageable,
-            Authentication authentication) {
-        Long userId = getUserId(authentication);
-        return ResponseEntity.ok(documentService.getRecentDocumentsWithFavorites(userId, pageable));
+            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
+            Authentication auth) {
+        return ResponseEntity.ok(documentService.getRecentDocumentsWithFavorites(getUserId(auth), pageable));
     }
 
-    @GetMapping("/history")
-    public ResponseEntity<Page<DocumentResponse>> activityHistory(
-            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
-            Pageable pageable,
-            Authentication authentication) {
-        Long userId = getUserId(authentication);
-        // history reutiliza recent internamente; también enriquecemos con isFavorite
-        return ResponseEntity.ok(documentService.getRecentDocumentsWithFavorites(userId, pageable));
-    }
-
-    /**
-     * RF-25: búsqueda avanzada con flag isFavorite en cada resultado.
-     */
     @GetMapping("/search")
     public ResponseEntity<Page<DocumentResponse>> searchDocuments(
             @RequestParam(required = false) String query,
@@ -104,11 +80,11 @@ public class DocumentController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String fromDate,
             @RequestParam(required = false) String toDate,
-            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
-            Pageable pageable,
-            Authentication authentication) {
-        Long userId = getUserId(authentication);
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
+            Authentication auth) {
 
+        Long userId = getUserId(auth);
+        // De tu versión: Guardar en el historial si hay una consulta
         if (query != null && !query.trim().isEmpty()) {
             searchHistoryService.saveSearch(userId, query);
         }
@@ -117,17 +93,7 @@ public class DocumentController {
                 userId, query, mimeType, status, fromDate, toDate, pageable));
     }
 
-    // ── Descarga ────────────────────────────────────────────────────────────
-
-    @GetMapping("/{documentId}/download")
-    public ResponseEntity<DownloadUrlResponse> getDownloadUrl(
-            @PathVariable Long documentId,
-            Authentication authentication) {
-        Long userId = getUserId(authentication);
-        return ResponseEntity.ok(documentService.getDownloadUrl(userId, documentId));
-    }
-
-    // ── Compartir ───────────────────────────────────────────────────────────
+    // ── COMPARTIR (SHARE) ───────────────────────────────────────────────────
 
     @PutMapping("/{docId}/share")
     public ResponseEntity<ShareResponse> shareDocument(
@@ -135,21 +101,6 @@ public class DocumentController {
             @Valid @RequestBody ShareRequest request,
             Authentication auth) {
         return ResponseEntity.ok(shareService.shareDocument(docId, request, getUserId(auth)));
-    }
-
-    @DeleteMapping("/shares/{shareId}")
-    public ResponseEntity<Void> revokeShare(
-            @PathVariable UUID shareId,
-            Authentication auth) {
-        shareService.revokeShare(shareId, getUserId(auth));
-        return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/shares/{shareId}/access")
-    public ResponseEntity<ShareAccessResponse> accessShare(
-            @PathVariable UUID shareId,
-            @RequestParam(required = false) String password) {
-        return ResponseEntity.ok(shareService.accessShare(shareId, password));
     }
 
     @GetMapping("/shares/mine")
@@ -160,36 +111,33 @@ public class DocumentController {
         return ResponseEntity.ok(shareService.getMyShares(getUserId(auth), includeRevoked, pageable));
     }
 
-    @PostMapping("/shares/{shareId}/write-url")
-    public ResponseEntity<PresignedUrlResponse> getWriteUrl(
+    @GetMapping("/shares/{shareId}/access")
+    public ResponseEntity<ShareAccessResponse> accessShare(
             @PathVariable UUID shareId,
-            @RequestParam(required = false) String password,
-            @RequestParam String mimeType) {
-        return ResponseEntity.ok(shareService.getWriteUrl(shareId, password, mimeType, null));
+            @RequestParam(required = false) String password) {
+        return ResponseEntity.ok(shareService.accessShare(shareId, password));
     }
 
-    //
+    // ── TAGS ────────────────────────────────────────────────────────────────
+
     @GetMapping("/{id}/tags")
     public List<TagResponse> getDocumentTags(@PathVariable Long id, Authentication auth) {
-        Long userId = getUserId(auth);  // Tu método existente
-        return documentService.getDocumentTags(id, userId);
+        return documentService.getDocumentTags(id, getUserId(auth));
     }
 
     @PutMapping("/{id}/tags/{tagId}")
     public ResponseEntity<Void> addTag(@PathVariable Long id, @PathVariable Long tagId, Authentication auth) {
-        Long userId = getUserId(auth);
-        documentService.addTagToDocument(id, tagId, userId);
+        documentService.addTagToDocument(id, tagId, getUserId(auth));
         return ResponseEntity.ok().build();
     }
 
     @DeleteMapping("/{id}/tags/{tagId}")
     public ResponseEntity<Void> removeTag(@PathVariable Long id, @PathVariable Long tagId, Authentication auth) {
-        Long userId = getUserId(auth);
-        documentService.removeTagFromDocument(id, tagId, userId);
+        documentService.removeTagFromDocument(id, tagId, getUserId(auth));
         return ResponseEntity.noContent().build();
     }
 
-    // ── Carpetas ────────────────────────────────────────────────────────────
+    // ── CARPETAS Y ELIMINACIÓN ──────────────────────────────────────────────
 
     @PatchMapping("/{docId}/folder/{folderId}")
     public ResponseEntity<DocumentResponse> moveToFolder(
@@ -199,21 +147,18 @@ public class DocumentController {
         return ResponseEntity.ok(folderService.moveToFolder(getUserId(auth), docId, folderId));
     }
 
-    @DeleteMapping("/{docId}/folder")
-    public ResponseEntity<DocumentResponse> removeFromFolder(
-            @PathVariable Long docId,
-            Authentication auth) {
-        return ResponseEntity.ok(folderService.removeFromFolder(getUserId(auth), docId));
-    }
-
-    // ── Eliminar ────────────────────────────────────────────────────────────
-
     @DeleteMapping("/{documentId}")
     public ResponseEntity<Void> deleteDocument(
             @PathVariable Long documentId,
-            Authentication authentication) {
-        Long userId = getUserId(authentication);
-        documentService.softDelete(userId, documentId);
+            Authentication auth) {
+        documentService.softDelete(getUserId(auth), documentId);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{documentId}/download")
+    public ResponseEntity<DownloadUrlResponse> getDownloadUrl(
+            @PathVariable Long documentId,
+            Authentication auth) {
+        return ResponseEntity.ok(documentService.getDownloadUrl(getUserId(auth), documentId));
     }
 }
