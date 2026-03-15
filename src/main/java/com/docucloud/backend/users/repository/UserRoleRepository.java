@@ -7,5 +7,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface UserRoleRepository extends JpaRepository<UserRole, Long> {
+
+    // Elimina todos los roles de un usuario (usado en updateRole)
+    void deleteByUserId(Long userId);
+
     List<UserRole> findByUser(User user);
 }

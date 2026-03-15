@@ -7,6 +7,7 @@ import com.docucloud.backend.auth.dto.response.JwtResponse;
 import com.docucloud.backend.auth.security.UserDetailsImpl;
 import com.docucloud.backend.common.security.BruteForceProtectionService;
 import com.docucloud.backend.config.security.jwt.JwtUtils;
+import com.docucloud.backend.documents.service.CategoryService;
 import com.docucloud.backend.users.model.Provider;
 import com.docucloud.backend.users.model.Role;
 import com.docucloud.backend.users.model.User;
@@ -40,6 +41,7 @@ public class AuthService {
     private final BruteForceProtectionService bruteForceProtectionService;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
+    private final CategoryService categoryService;
 
     public AuthService(UserRepository userRepository,
                        UserRoleRepository userRoleRepository,
@@ -49,7 +51,8 @@ public class AuthService {
                        BruteForceProtectionService bruteForceProtectionService,
                        RefreshTokenService refreshTokenService,
                        AuditService auditService,
-                       ObjectMapper objectMapper) {
+                       ObjectMapper objectMapper,
+                       CategoryService categoryService) {
         this.userRepository = userRepository;
         this.userRoleRepository = userRoleRepository;
         this.passwordEncoder = passwordEncoder;
@@ -59,6 +62,7 @@ public class AuthService {
         this.refreshTokenService = refreshTokenService;
         this.auditService = auditService;
         this.objectMapper = objectMapper;
+        this.categoryService = categoryService;
     }
 
     @Transactional
@@ -71,12 +75,15 @@ public class AuthService {
         user.setEmail(request.getEmail());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setProvider(Provider.LOCAL);
+        user.setName(request.getName());
         user = userRepository.save(user);
 
         UserRole ur = new UserRole();
         ur.setUser(user);
         ur.setRole(Role.USER);
         userRoleRepository.save(ur);
+
+        categoryService.createDefaultCategories(user);
 
         // Auditoría: registro exitoso
         ObjectNode details = objectMapper.createObjectNode();

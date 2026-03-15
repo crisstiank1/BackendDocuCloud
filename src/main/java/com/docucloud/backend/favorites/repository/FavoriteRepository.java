@@ -23,26 +23,30 @@ public interface FavoriteRepository extends JpaRepository<Favorite, Long> {
 
     /**
      * CA25.3 – Favoritos del usuario ordenados por fecha de marcado DESC.
-     * JOIN FETCH evita N+1 al acceder a f.document dentro del mapper.
+     * FIX: JOIN FETCH f.document evita N+1 al acceder a f.getDocument()
+     * dentro del mapper toResponse() — sin esto cada acceso dispara
+     * una query SELECT adicional por cada favorito de la lista.
      */
     @Query("""
-    SELECT f FROM Favorite f
-    WHERE f.user.id = :userId
-    ORDER BY f.createdAt DESC
-""")
+        SELECT f FROM Favorite f
+        JOIN FETCH f.document
+        WHERE f.user.id = :userId
+        ORDER BY f.createdAt DESC
+        """)
     List<Favorite> findByUserIdOrderByCreatedAtDesc(@Param("userId") Long userId);
 
     // ─── BATCH LOOKUP (anti N+1) ──────────────────────────────────────────────
 
     /**
      * RF-25 – Recibe los IDs de la página actual y retorna solo los que
-     * son favoritos del usuario. Una sola query en lugar de N existsBy...
+     * son favoritos del usuario. Una sola query con IN clause en lugar
+     * de N llamadas a existsByUserIdAndDocumentId.
      */
     @Query("""
         SELECT f.document.id FROM Favorite f
         WHERE f.user.id = :userId
         AND f.document.id IN :documentIds
-    """)
+        """)
     Set<Long> findFavoriteDocumentIds(
             @Param("userId") Long userId,
             @Param("documentIds") Set<Long> documentIds

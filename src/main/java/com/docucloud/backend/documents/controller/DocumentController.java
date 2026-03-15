@@ -5,6 +5,7 @@ import com.docucloud.backend.documents.dto.request.CompleteUploadRequest;
 import com.docucloud.backend.documents.dto.request.InitUploadRequest;
 import com.docucloud.backend.documents.dto.request.ShareRequest;
 import com.docucloud.backend.documents.dto.response.*;
+import com.docucloud.backend.documents.service.CategoryService;
 import com.docucloud.backend.documents.service.DocumentService;
 import com.docucloud.backend.documents.service.FolderService;
 import com.docucloud.backend.documents.service.ShareService;
@@ -33,6 +34,7 @@ public class DocumentController {
     private final ShareService shareService;
     private final SearchHistoryService searchHistoryService;
     private final FolderService folderService;
+    private final CategoryService categoryService;
 
     // Helper centralizado para obtener el ID del usuario
     private Long getUserId(Authentication auth) {
@@ -137,6 +139,26 @@ public class DocumentController {
         return ResponseEntity.noContent().build();
     }
 
+    // ── Categorías ───────────────────────────────────────────────────────────────
+
+    @PatchMapping("/{documentId}/category/{categoryId}")
+    public ResponseEntity<Void> assignCategory(
+            @PathVariable Long documentId,
+            @PathVariable Long categoryId,
+            Authentication auth) {
+        categoryService.assignCategory(getUserId(auth), documentId, categoryId);
+        return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/{documentId}/category")
+    public ResponseEntity<Void> removeCategory(
+            @PathVariable Long documentId,
+            Authentication auth) {
+        categoryService.removeCategory(getUserId(auth), documentId);
+        return ResponseEntity.noContent().build();
+    }
+
+
     // ── CARPETAS Y ELIMINACIÓN ──────────────────────────────────────────────
 
     @PatchMapping("/{docId}/folder/{folderId}")
@@ -160,5 +182,12 @@ public class DocumentController {
             @PathVariable Long documentId,
             Authentication auth) {
         return ResponseEntity.ok(documentService.getDownloadUrl(getUserId(auth), documentId));
+    }
+
+    @GetMapping("/{documentId}/preview")
+    public ResponseEntity<DownloadUrlResponse> getPreviewUrl(
+            @PathVariable Long documentId,
+            Authentication auth) {
+        return ResponseEntity.ok(documentService.getPreviewUrl(getUserId(auth), documentId));
     }
 }

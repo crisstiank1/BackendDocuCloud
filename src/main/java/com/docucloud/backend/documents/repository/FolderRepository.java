@@ -18,6 +18,7 @@ public interface FolderRepository extends JpaRepository<Folder, Long> {
 
     // 3. NAVEGACIÓN SUBDIRECTORIOS: Carpetas dentro de otra carpeta
     List<Folder> findByOwnerUserIdAndParentIdOrderByNameAsc(Long ownerUserId, Long parentId);
+    List<Folder> findByOwnerUserIdOrderByNameAsc(Long ownerUserId);
 
     // 4. VALIDACIÓN DE NOMBRES (POR NIVEL):
     // Para raíz

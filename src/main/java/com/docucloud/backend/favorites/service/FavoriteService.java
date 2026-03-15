@@ -33,22 +33,17 @@ public class FavoriteService {
 
     // ─── TOGGLE ───────────────────────────────────────────────────────────────
 
-    /**
-     * Alterna el estado de favorito.
-     * @return true si quedó marcado, false si fue desmarcado
-     */
     @Transactional
     public boolean toggleFavorite(Long userId, Long documentId) {
-
         Optional<Favorite> existing =
                 favoriteRepository.findByUserIdAndDocumentId(userId, documentId);
 
         if (existing.isPresent()) {
             favoriteRepository.delete(existing.get());
+            log.info("⭐ Unfavorited - user={} doc={}", userId, documentId);
             return false;
         }
 
-        // Verificar límite – anticipa RF-27
         long count = favoriteRepository.countByUserId(userId);
         if (count >= maxFavoritesPerUser) {
             throw new ResponseStatusException(
@@ -58,7 +53,6 @@ public class FavoriteService {
             );
         }
 
-        // Verificar que el documento existe y pertenece al usuario
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Documento no encontrado"));
@@ -74,20 +68,15 @@ public class FavoriteService {
         favorite.setUser(user);
         favorite.setDocument(document);
         favoriteRepository.save(favorite);
+
+        log.info("⭐ Favorited - user={} doc={}", userId, documentId);
         return true;
     }
 
     // ─── PANEL DE FAVORITOS ───────────────────────────────────────────────────
 
-    /**
-     * CA25.2 / CA25.3 – Panel de favoritos ordenado por fecha DESC.
-     * categoryId ignorado hasta que se implemente RF-17/18 (clasificación).
-     * Cuando Document tenga la relación categories, activar filtro aquí.
-     */
     @Transactional(readOnly = true)
     public List<FavoriteResponse> getFavorites(Long userId, Long categoryId) {
-        // TODO RF-17/18: cuando exista Document.categories, delegar en
-        //   favoriteRepository.findByUserIdAndCategoryId(userId, categoryId)
         List<Favorite> favorites =
                 favoriteRepository.findByUserIdOrderByCreatedAtDesc(userId);
 
@@ -98,17 +87,15 @@ public class FavoriteService {
 
     // ─── UTILIDADES PARA DocumentService ─────────────────────────────────────
 
-    /**
-     * Verifica si un documento es favorito del usuario.
-     */
     @Transactional(readOnly = true)
     public boolean isFavorite(Long userId, Long documentId) {
         return favoriteRepository.existsByUserIdAndDocumentId(userId, documentId);
     }
 
     /**
-     * Batch lookup – retorna qué IDs del set dado son favoritos del usuario.
+     * Batch lookup — retorna los IDs del set dado que son favoritos del usuario.
      * Usado por DocumentService para evitar N+1 al paginar listas.
+     * Delega la query al repositorio con IN clause.
      */
     @Transactional(readOnly = true)
     public Set<Long> getFavoriteIdsByDocumentIds(Long userId, Set<Long> documentIds) {
@@ -119,29 +106,18 @@ public class FavoriteService {
     // ─── MAPPER ───────────────────────────────────────────────────────────────
 
     private FavoriteResponse toResponse(Favorite f) {
-        try {
-            Document doc = f.getDocument();
+        // FIX: cambiado de log.info a log.debug — este log no debe aparecer en producción
+        Document doc = f.getDocument();
+        log.debug("Mapping favorite: docId={}", doc.getId());
 
-            log.info("🔍 doc fields: id={}, fileName={}, mimeType={}, folderId={}",
-                    doc.getId(),
-                    doc.getFileName(),
-                    doc.getMimeType(),
-                    doc.getFolderId());
-
-            return FavoriteResponse.builder()
-                    .documentId(doc.getId())
-                    .documentName(doc.getFileName() != null ? doc.getFileName() : "sin nombre")
-                    .fileType(doc.getMimeType() != null ? doc.getMimeType() : "unknown")
-                    .folderId(doc.getFolderId())
-                    .folderName(null)
-                    .favoritedAt(f.getCreatedAt())
-                    .categoryNames(List.of())
-                    .build();
-
-        } catch (Exception e) {
-            log.error("❌ Error mapping Favorite: {}", e.getMessage(), e);
-            throw e;
-        }
+        return FavoriteResponse.builder()
+                .documentId(doc.getId())
+                .documentName(doc.getFileName() != null ? doc.getFileName() : "sin nombre")
+                .fileType(doc.getMimeType()   != null ? doc.getMimeType()   : "unknown")
+                .folderId(doc.getFolderId())
+                .folderName(null)
+                .favoritedAt(f.getCreatedAt())
+                .categoryNames(List.of())
+                .build();
     }
-
 }

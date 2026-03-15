@@ -243,6 +243,17 @@ public class DocumentService {
         return new DownloadUrlResponse(url.url(), url.expiresAt());
     }
 
+    // ─── PREVIEW ─────────────────────────────────────────────────────────────
+
+    public DownloadUrlResponse getPreviewUrl(Long userId, Long docId) {
+        Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+
+        PresignedUrlResponse url = presignService.presignGet(doc.getS3Bucket(), doc.getS3Key(), getDuration);
+        return new DownloadUrlResponse(url.url(), url.expiresAt());
+    }
+
+
     // ─── DELETE ───────────────────────────────────────────────────────────────
 
     @Audited(action = "DOC_DELETE", resourceType = "Document", resourceIdArgIndex = 1)

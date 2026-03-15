@@ -55,6 +55,10 @@ public class Document {
     @Column(name = "folder_id")
     private Long folderId;
 
+    @Column(name = "category_id")
+    private Long categoryId;
+
+
     // ← NUEVA RELACIÓN TAGS
     @ManyToMany
     @JoinTable(
