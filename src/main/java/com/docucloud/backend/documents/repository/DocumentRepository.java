@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.List;
 
 public interface DocumentRepository extends JpaRepository<Document, Long>,
         JpaSpecificationExecutor<Document> {
@@ -51,4 +52,11 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
 
     // Documentos por status (útil para analytics)
     long countByOwnerUserIdAndStatusAndDeletedAtIsNull(Long ownerUserId, DocumentStatus status);
+
+    // Necesario para desasociar docs al eliminar una categoría
+    List<Document> findByCategoryIdAndOwnerUserIdAndDeletedAtIsNull(
+            Long categoryId,
+            Long ownerUserId
+    );
+
 }

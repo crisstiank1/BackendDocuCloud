@@ -55,6 +55,10 @@ public class Document {
     @Column(name = "folder_id")
     private Long folderId;
 
+    @Column(name = "category_id")
+    private Long categoryId;
+
+
     // ← NUEVA RELACIÓN TAGS
     @ManyToMany
     @JoinTable(
@@ -64,8 +68,9 @@ public class Document {
     )
     private Set<Tag> tags = new HashSet<>();
 
+    @PrePersist
+    void prePersist() { createdAt = Instant.now(); updatedAt = Instant.now(); }
+
     @PreUpdate
-    public void touch() {
-        updatedAt = Instant.now();
-    }
+    void preUpdate() { updatedAt = Instant.now(); }
 }

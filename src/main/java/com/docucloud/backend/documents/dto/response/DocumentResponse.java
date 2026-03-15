@@ -13,9 +13,10 @@ public record DocumentResponse(
         String fileHash,
         DocumentStatus status,
         Long folderId,
+        Long categoryId,
         Instant createdAt,
         Instant updatedAt,
-        boolean isFavorite          // ← NUEVO
+        boolean isFavorite
 ) {
     /** Factory sin favoritos – mantiene compatibilidad con código existente */
     public static DocumentResponse from(Document d) {
@@ -33,6 +34,7 @@ public record DocumentResponse(
                 d.getFileHash()  != null ? d.getFileHash()  : "",
                 d.getStatus()    != null ? d.getStatus()    : DocumentStatus.PENDING_UPLOAD,
                 d.getFolderId(),
+                d.getCategoryId(),
                 d.getCreatedAt(),
                 d.getUpdatedAt(),
                 isFavorite

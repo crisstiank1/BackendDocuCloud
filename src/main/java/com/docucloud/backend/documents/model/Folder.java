@@ -1,10 +1,16 @@
 package com.docucloud.backend.documents.model;
 
 import jakarta.persistence.*;
+import lombok.*;
 import java.time.Instant;
 
 @Entity
 @Table(name = "folders")
+@Getter
+@Setter
+@NoArgsConstructor    // Requerido por JPA
+@AllArgsConstructor   // Requerido por el Builder
+@Builder              // Permite crear carpetas de forma fluida
 public class Folder {
 
     @Id
@@ -20,22 +26,34 @@ public class Folder {
     @Column(name = "parent_id")
     private Long parentId;
 
+
+    @Column(name = "full_path", nullable = false)
+    private String fullPath;
+
+
+    @Builder.Default
+    @Column(name = "depth", nullable = false)
+    private Integer depth = 0;
+
+    @Builder.Default
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
+    @Builder.Default
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
-    @PreUpdate
-    public void touch() { updatedAt = Instant.now(); }
+    @PrePersist
+    public void prePersist() {
+        if (this.createdAt == null) this.createdAt = Instant.now();
+        this.updatedAt = Instant.now();
 
-    public Long getId() { return id; }
-    public Long getOwnerUserId() { return ownerUserId; }
-    public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public Instant getCreatedAt() { return createdAt; }
-    public Instant getUpdatedAt() { return updatedAt; }
-    public Long getParentId() { return parentId; }
-    public void setParentId(Long parentId) { this.parentId = parentId; }
+        // Aseguramos que si no hay profundidad, empiece en 0
+        if (this.depth == null) this.depth = 0;
+    }
+
+    @PreUpdate
+    public void touch() {
+        this.updatedAt = Instant.now();
+    }
 }

@@ -21,17 +21,17 @@ public class S3PresignService {
         this.presigner = presigner;
     }
 
-    public PresignedUrlResponse presignPut(String bucket, String key, String contentType, Duration duration) {
-        PutObjectRequest put = PutObjectRequest.builder()
+    public PresignedUrlResponse presignPut(String bucket, String key, String mimeType, Duration duration) {
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                 .bucket(bucket)
                 .key(key)
-                .contentType(contentType)
+                .contentType(mimeType)
                 .build();
 
         PresignedPutObjectRequest presigned = presigner.presignPutObject(
                 PutObjectPresignRequest.builder()
                         .signatureDuration(duration)
-                        .putObjectRequest(put)
+                        .putObjectRequest(putObjectRequest)
                         .build()
         );
 
@@ -47,6 +47,19 @@ public class S3PresignService {
         PresignedGetObjectRequest presigned = presigner.presignGetObject(r -> r
                 .signatureDuration(duration)
                 .getObjectRequest(get));
+
+        return new PresignedUrlResponse(presigned.url().toString(), Instant.now().plus(duration), "GET");
+    }
+    public PresignedUrlResponse presignGet(String bucket, String key, String fileName, Duration duration) {
+        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .responseContentDisposition("attachment; filename=\"" + fileName + "\"")
+                .build();
+
+        PresignedGetObjectRequest presigned = presigner.presignGetObject(r -> r
+                .signatureDuration(duration)
+                .getObjectRequest(getObjectRequest));
 
         return new PresignedUrlResponse(presigned.url().toString(), Instant.now().plus(duration), "GET");
     }

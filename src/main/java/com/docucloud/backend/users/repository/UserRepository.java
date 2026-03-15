@@ -2,6 +2,9 @@ package com.docucloud.backend.users.repository;
 
 import com.docucloud.backend.users.model.User;
 import java.util.Optional;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -19,4 +22,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
         where u.email = :email
     """)
     Optional<User> findByEmailWithRoles(@Param("email") String email);
+
+    // Búsqueda para el panel admin (paginada)
+    Page<User> findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(
+            String name, String email, Pageable pageable
+    );
 }
