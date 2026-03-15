@@ -6,6 +6,7 @@ import com.docucloud.backend.auth.dto.request.RegisterRequest;
 import com.docucloud.backend.auth.dto.response.JwtResponse;
 import com.docucloud.backend.auth.security.UserDetailsImpl;
 import com.docucloud.backend.common.security.BruteForceProtectionService;
+import com.docucloud.backend.common.service.EmailService;
 import com.docucloud.backend.config.security.jwt.JwtUtils;
 import com.docucloud.backend.documents.service.CategoryService;
 import com.docucloud.backend.users.model.Provider;
@@ -42,6 +43,7 @@ public class AuthService {
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
     private final CategoryService categoryService;
+    private final EmailService emailService;              // ← NUEVO
 
     public AuthService(UserRepository userRepository,
                        UserRoleRepository userRoleRepository,
@@ -52,7 +54,8 @@ public class AuthService {
                        RefreshTokenService refreshTokenService,
                        AuditService auditService,
                        ObjectMapper objectMapper,
-                       CategoryService categoryService) {
+                       CategoryService categoryService,
+                       EmailService emailService) {       // ← NUEVO
         this.userRepository = userRepository;
         this.userRoleRepository = userRoleRepository;
         this.passwordEncoder = passwordEncoder;
@@ -63,8 +66,10 @@ public class AuthService {
         this.auditService = auditService;
         this.objectMapper = objectMapper;
         this.categoryService = categoryService;
+        this.emailService = emailService;                 // ← NUEVO
     }
 
+    // ─── REGISTER ─────────────────────────────────────────────────────────────
     @Transactional
     public void register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
@@ -85,33 +90,34 @@ public class AuthService {
 
         categoryService.createDefaultCategories(user);
 
-        // Auditoría: registro exitoso
+        // ← NUEVO: email de bienvenida (silencioso, no bloquea el registro)
+        emailService.sendWelcome(user.getEmail(), user.getName());
+
+        // Auditoría
         ObjectNode details = objectMapper.createObjectNode();
         details.put("email", user.getEmail());
         auditService.logBusiness(user.getId(), "AUTH_REGISTER", "Auth", user.getId(), true, details);
     }
 
+    // ─── LOGIN ────────────────────────────────────────────────────────────────
     @Transactional
     public JwtResponse login(LoginRequest request, String ip) {
-        String email = request.getEmail().toLowerCase().trim();
-
+        String email   = request.getEmail().toLowerCase().trim();
         String userKey = "user:" + email;
         String ipKey   = "ip:" + ip;
 
         if (bruteForceProtectionService.isLocked(userKey) || bruteForceProtectionService.isLocked(ipKey)) {
-            // Auditoría: bloqueado por brute force
             ObjectNode details = objectMapper.createObjectNode();
             details.put("email", email);
             details.put("reason", "BRUTE_FORCE_LOCKED");
             auditService.logHttp(null, "AUTH_LOGIN_BLOCKED", "Auth", null, false, ip, null, details);
-
-            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Demasiados intentos. Intenta más tarde.");
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Demasiados intentos. Intenta más tarde.");
         }
 
         try {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(email, request.getPassword()));
-
             bruteForceProtectionService.onSuccess(userKey);
             bruteForceProtectionService.onSuccess(ipKey);
 
@@ -119,18 +125,14 @@ public class AuthService {
             bruteForceProtectionService.onFail(userKey);
             bruteForceProtectionService.onFail(ipKey);
 
-            // Auditoría: login fallido (no guardamos el password, solo el email)
             ObjectNode details = objectMapper.createObjectNode();
             details.put("email", email);
-            details.put("reason", ex.getClass().getSimpleName()); // BadCredentialsException etc.
+            details.put("reason", ex.getClass().getSimpleName());
             auditService.logHttp(null, "AUTH_LOGIN_FAILURE", "Auth", null, false, ip, null, details);
-
             throw ex;
         }
 
         User user = userRepository.findByEmail(email).orElseThrow();
-
-        // ✅ NUEVO: Reiniciar contador de inactividad al login
         user.setLastActivityAt(Instant.now());
         userRepository.save(user);
 
@@ -141,7 +143,6 @@ public class AuthService {
                 .map(r -> r.getRole().name())
                 .collect(Collectors.toSet());
 
-        // Auditoría: login exitoso
         ObjectNode details = objectMapper.createObjectNode();
         details.put("email", email);
         auditService.logHttp(user.getId(), "AUTH_LOGIN_SUCCESS", "Auth", user.getId(), true, ip, null, details);
@@ -149,7 +150,7 @@ public class AuthService {
         return new JwtResponse(access, refresh, user.getId(), user.getEmail(), roles, user.getName());
     }
 
-
+    // ─── LOGIN GOOGLE ─────────────────────────────────────────────────────────
     @Transactional
     public JwtResponse loginWithGoogle(User user) {
         User managed = userRepository.findByEmailWithRoles(user.getEmail())
@@ -162,7 +163,6 @@ public class AuthService {
                 .map(r -> r.getRole().name())
                 .collect(Collectors.toSet());
 
-        // Auditoría: login con Google
         ObjectNode details = objectMapper.createObjectNode();
         details.put("email", managed.getEmail());
         details.put("provider", "GOOGLE");
@@ -171,12 +171,12 @@ public class AuthService {
         return new JwtResponse(access, refresh, managed.getId(), managed.getEmail(), roles, managed.getName());
     }
 
+    // ─── LOGOUT ───────────────────────────────────────────────────────────────
     @Transactional
     public void logout(String email) {
         userRepository.findByEmail(email).ifPresent(user -> {
             refreshTokenService.revokeAllForUser(user);
 
-            // Auditoría: logout
             ObjectNode details = objectMapper.createObjectNode();
             details.put("email", email);
             auditService.logBusiness(user.getId(), "AUTH_LOGOUT", "Auth", user.getId(), true, details);
