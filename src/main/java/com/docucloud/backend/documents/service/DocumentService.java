@@ -26,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Async;            // ← NUEVO
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,14 +37,16 @@ import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;  // ← faltaba
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
 @Transactional
 public class DocumentService {
-    @Autowired private TagRepository tagRepository;           // ← AGREGAR
+
+    @Autowired private TagRepository tagRepository;
     @Autowired private DocumentTagRepository documentTagRepository;
+    @Autowired private ClassifierService classifierService;        // ← NUEVO
 
     private final DocumentRepository repo;
     private final S3KeyService keyService;
@@ -115,16 +118,17 @@ public class DocumentService {
         repo.save(doc);
 
         logActivity(userId, docId, "UPLOAD_COMPLETED");
+
+        // ← NUEVO: lanza clasificación AI en background (no bloquea la respuesta)
+        classifierService.classifyAndAssign(docId, doc.getFileName(), userId);
     }
 
     // ─── LISTADO ──────────────────────────────────────────────────────────────
 
-    /** Original – sin cambios, usado por controladores existentes */
     public Page<Document> list(Long userId, Pageable pageable) {
         return repo.findAllByOwnerUserIdAndDeletedAtIsNull(userId, pageable);
     }
 
-    /** RF-25 – Lista paginada enriquecida con flag isFavorite (1 query extra en batch) */
     @Transactional(readOnly = true)
     public Page<DocumentResponse> listWithFavorites(Long userId, Pageable pageable) {
         Page<Document> page = repo.findAllByOwnerUserIdAndDeletedAtIsNull(userId, pageable);
@@ -132,7 +136,6 @@ public class DocumentService {
         return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
     }
 
-    /** Original – sin cambios */
     public Page<Document> getRecentDocuments(Long userId, Pageable pageable) {
         log.info("🔍 Recent query userId={} pageable={}", userId, pageable);
         Page<Document> page = repo.findByOwnerUserIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
@@ -141,7 +144,6 @@ public class DocumentService {
         return page;
     }
 
-    /** RF-25 – Documentos recientes enriquecidos con flag isFavorite */
     @Transactional(readOnly = true)
     public Page<DocumentResponse> getRecentDocumentsWithFavorites(Long userId, Pageable pageable) {
         Page<Document> page = repo.findByOwnerUserIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
@@ -156,15 +158,9 @@ public class DocumentService {
 
     // ─── BÚSQUEDA AVANZADA RF-21/22 ───────────────────────────────────────────
 
-    /** Original – sin cambios */
     public Page<Document> search(
-            Long userId,
-            String query,
-            String mimeType,
-            String statusParam,
-            String fromDate,
-            String toDate,
-            Pageable pageable) {
+            Long userId, String query, String mimeType,
+            String statusParam, String fromDate, String toDate, Pageable pageable) {
 
         String nameQuery = (query == null || query.isBlank()) ? null : query.trim();
         String mimeQuery = (mimeType == null || mimeType.isBlank()) ? null : mimeType.trim();
@@ -176,19 +172,16 @@ public class DocumentService {
             } catch (IllegalArgumentException e) {
                 throw new IllegalArgumentException(
                         "status inválido: '" + statusParam + "'. Valores permitidos: "
-                                + Arrays.toString(DocumentStatus.values())
-                );
+                                + Arrays.toString(DocumentStatus.values()));
             }
         }
 
         Instant fromInstant = null;
         if (fromDate != null && !fromDate.isBlank()) {
             try {
-                fromInstant = LocalDate.parse(fromDate.trim())
-                        .atStartOfDay(ZoneOffset.UTC).toInstant();
+                fromInstant = LocalDate.parse(fromDate.trim()).atStartOfDay(ZoneOffset.UTC).toInstant();
             } catch (Exception e) {
-                throw new IllegalArgumentException(
-                        "fromDate inválido: '" + fromDate + "' (formato esperado: YYYY-MM-DD)");
+                throw new IllegalArgumentException("fromDate inválido: '" + fromDate + "'");
             }
         }
 
@@ -199,27 +192,19 @@ public class DocumentService {
                         .atTime(23, 59, 59, 999_000_000)
                         .atOffset(ZoneOffset.UTC).toInstant();
             } catch (Exception e) {
-                throw new IllegalArgumentException(
-                        "toDate inválido: '" + toDate + "' (formato esperado: YYYY-MM-DD)");
+                throw new IllegalArgumentException("toDate inválido: '" + toDate + "'");
             }
         }
 
         return repo.findAll(
                 DocumentSpecification.search(userId, nameQuery, mimeQuery, status, fromInstant, toInstant),
-                pageable
-        );
+                pageable);
     }
 
-    /** RF-25 – Búsqueda enriquecida con flag isFavorite */
     @Transactional(readOnly = true)
     public Page<DocumentResponse> searchWithFavorites(
-            Long userId,
-            String query,
-            String mimeType,
-            String statusParam,
-            String fromDate,
-            String toDate,
-            Pageable pageable) {
+            Long userId, String query, String mimeType,
+            String statusParam, String fromDate, String toDate, Pageable pageable) {
 
         Page<Document> page = search(userId, query, mimeType, statusParam, fromDate, toDate, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
@@ -239,7 +224,6 @@ public class DocumentService {
 
         PresignedUrlResponse url = presignService.presignGet(doc.getS3Bucket(), doc.getS3Key(), getDuration);
         logActivity(userId, docId, "DOWNLOAD_REQUESTED");
-
         return new DownloadUrlResponse(url.url(), url.expiresAt());
     }
 
@@ -253,7 +237,6 @@ public class DocumentService {
         return new DownloadUrlResponse(url.url(), url.expiresAt());
     }
 
-
     // ─── DELETE ───────────────────────────────────────────────────────────────
 
     @Audited(action = "DOC_DELETE", resourceType = "Document", resourceIdArgIndex = 1)
@@ -264,50 +247,41 @@ public class DocumentService {
         doc.setDeletedAt(Instant.now());
         doc.setStatus(DocumentStatus.DELETED);
         repo.save(doc);
-
         logActivity(userId, docId, "DELETED");
     }
 
-
+    // ─── TAGS ─────────────────────────────────────────────────────────────────
 
     @Transactional
     public void addTagToDocument(Long documentId, Long tagId, Long userId) {
-        // 1. Validar que el documento existe y pertenece al usuario
         Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(documentId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found or access denied"));
 
-        // 2. Validar que el tag existe
         Tag tag = tagRepository.findById(tagId)
                 .orElseThrow(() -> new IllegalArgumentException("Tag not found"));
 
-        // 3. Crear el ID compuesto usando los valores Long (según el ajuste en DocumentTagId)
         DocumentTagId id = new DocumentTagId(documentId, tagId);
-
-        // 4. Verificar si la relación ya existe para evitar duplicados
         if (documentTagRepository.existsById(id)) {
             log.info("🏷️ Tag {} already associated with document {}", tagId, documentId);
             return;
         }
 
-        // 5. Crear y guardar la nueva asociación
-        DocumentTag docTag = DocumentTag.builder()
-                .document(doc)
-                .tag(tag)
-                .build();
-
+        DocumentTag docTag = DocumentTag.builder().document(doc).tag(tag).build();
         documentTagRepository.save(docTag);
         log.info("✅ Tag '{}' added to document '{}'", tag.getName(), doc.getFileName());
     }
 
     @Transactional
     public void removeTagFromDocument(Long documentId, Long tagId, Long userId) {
-        Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(documentId, userId)
+        repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(documentId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
         documentTagRepository.deleteByDocumentIdAndTagId(documentId, tagId);
     }
+
     public List<TagResponse> getDocumentTags(Long documentId, Long userId) {
         return documentTagRepository.findByDocumentId(documentId)
-                .stream().map(dt -> new TagResponse(dt.getTag().getId(), dt.getTag().getName()))
+                .stream()
+                .map(dt -> new TagResponse(dt.getTag().getId(), dt.getTag().getName()))
                 .collect(Collectors.toList());
     }
 
@@ -317,10 +291,6 @@ public class DocumentService {
         log.info("📋 Activity - user={} doc={} action={}", userId, docId, action);
     }
 
-    /**
-     * RF-25 – Extrae los IDs de la página actual y consulta favoritos en una
-     * sola query (batch), evitando el problema N+1 al mapear DocumentResponse.
-     */
     private Set<Long> getFavoriteIds(Long userId, Page<Document> page) {
         Set<Long> docIds = page.getContent().stream()
                 .map(Document::getId)

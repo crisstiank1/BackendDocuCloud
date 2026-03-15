@@ -22,7 +22,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.access.AccessDeniedHandler;      // ✅ nuevo
+import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -43,7 +43,6 @@ public class SecurityConfig {
     private final OAuth2SuccessHandler oAuth2SuccessHandler;
     private final InactivityFilter inactivityFilter;
 
-    // ✅ Lee orígenes CORS desde application.properties
     @Value("${app.cors.allowed-origins:http://localhost:5173}")
     private List<String> allowedOrigins;
 
@@ -70,11 +69,12 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint(unauthorizedHandler)   // 401 — no autenticado
-                        .accessDeniedHandler(accessDeniedHandler())      // ✅ 403 — sin permisos
+                        .authenticationEntryPoint(unauthorizedHandler)
+                        .accessDeniedHandler(accessDeniedHandler())
                 )
                 .authorizeHttpRequests(auth -> auth
-                        // Públicos
+
+                        // ── Públicos ──────────────────────────────────────────
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/health/**").permitAll()
                         .requestMatchers("/oauth2/**").permitAll()
@@ -82,7 +82,13 @@ public class SecurityConfig {
                         .requestMatchers("/api/dev/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/documents/shares/*/access").permitAll()
 
-                        // ✅ Admin — doble protección: URL + @PreAuthorize en el controller
+                        // ── Rutas /me — DEBEN ir ANTES que /{id} ─────────────
+                        // Si no, Spring las interpreta como /{id} y exige ADMIN
+                        .requestMatchers(HttpMethod.GET,   "/api/users/me").authenticated()
+                        .requestMatchers(HttpMethod.PUT,   "/api/users/me").authenticated()
+                        .requestMatchers(HttpMethod.PATCH, "/api/users/me").authenticated()
+
+                        // ── Admin ─────────────────────────────────────────────
                         .requestMatchers(HttpMethod.GET,    "/api/users").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET,    "/api/users/{id}").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT,    "/api/users/{id}/role").hasRole("ADMIN")
@@ -90,8 +96,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.DELETE, "/api/users/{id}").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT,    "/api/users/{id}/limits").hasRole("ADMIN")
 
-                        // ✅ /api/users/me — redundante eliminado, anyRequest lo cubre
-                        // El resto requiere autenticación
+                        // ── Todo lo demás requiere autenticación ──────────────
                         .anyRequest().authenticated()
                 )
                 .userDetailsService(userDetailsService)
@@ -101,14 +106,12 @@ public class SecurityConfig {
                         .defaultSuccessUrl("/api/oauth2/success", true)
                 );
 
-        // Orden: 1° valida JWT → 2° revisa inactividad
         http.addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterAfter(inactivityFilter, AuthTokenFilter.class);
 
         return http.build();
     }
 
-    // ✅ Handler para 403 — responde JSON consistente con el resto de la API
     @Bean
     public AccessDeniedHandler accessDeniedHandler() {
         return (request, response, ex) -> {
@@ -131,7 +134,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(allowedOrigins);          // ✅ desde properties
+        config.setAllowedOrigins(allowedOrigins);
         config.addAllowedHeader("*");
         config.addAllowedMethod("*");
         config.setAllowCredentials(true);

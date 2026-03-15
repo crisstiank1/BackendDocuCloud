@@ -22,12 +22,14 @@ public class CategoryController {
 
     private final CategoryService categoryService;
 
+    // GET /api/categories
     @GetMapping
     public ResponseEntity<List<CategoryResponse>> list(
             @AuthenticationPrincipal UserDetailsImpl user) {
         return ResponseEntity.ok(categoryService.listCategories(user.getId()));
     }
 
+    // POST /api/categories
     @PostMapping
     public ResponseEntity<CategoryResponse> create(
             @Valid @RequestBody CreateCategoryRequest request,
@@ -37,6 +39,17 @@ public class CategoryController {
                 .body(categoryService.createCategory(user.getId(), request));
     }
 
+    // PATCH /api/categories/{categoryId}
+    @PatchMapping("/{categoryId}")
+    public ResponseEntity<CategoryResponse> update(
+            @PathVariable Long categoryId,
+            @Valid @RequestBody CreateCategoryRequest request,
+            @AuthenticationPrincipal UserDetailsImpl user) {
+        return ResponseEntity.ok(
+                categoryService.updateCategory(user.getId(), categoryId, request));
+    }
+
+    // DELETE /api/categories/{categoryId}
     @DeleteMapping("/{categoryId}")
     public ResponseEntity<Void> delete(
             @PathVariable Long categoryId,
@@ -45,6 +58,7 @@ public class CategoryController {
         return ResponseEntity.noContent().build();
     }
 
+    // PATCH /api/categories/{categoryId}/documents/{documentId}  ← asignar
     @PatchMapping("/{categoryId}/documents/{documentId}")
     public ResponseEntity<Void> assign(
             @PathVariable Long categoryId,
@@ -55,13 +69,13 @@ public class CategoryController {
         return ResponseEntity.ok().build();
     }
 
-    @PatchMapping("/{categoryId}")
-    public ResponseEntity<CategoryResponse> update(
-            @PathVariable Long categoryId,
-            @Valid @RequestBody CreateCategoryRequest request,
-            @AuthenticationPrincipal UserDetailsImpl user) {
-        return ResponseEntity.ok(
-                categoryService.updateCategory(user.getId(), categoryId, request));
-    }
 
+    @DeleteMapping("/documents/{documentId}")
+    public ResponseEntity<Void> removeFromDocument(
+            @PathVariable Long documentId,
+            @AuthenticationPrincipal UserDetailsImpl user) {
+        log.info("🗑️ removeCategory - userId={} docId={}", user.getId(), documentId);
+        categoryService.removeCategory(user.getId(), documentId);
+        return ResponseEntity.noContent().build();
+    }
 }
