@@ -120,6 +120,14 @@ public class DocumentController {
         return ResponseEntity.ok(shareService.getSharedWithMe(user.getEmail(), pageable));
     }
 
+    @DeleteMapping("/shares/{shareId}")
+    public ResponseEntity<Void> revokeShare(
+            @PathVariable UUID shareId,
+            Authentication auth) {
+        shareService.revokeShare(shareId, getUserId(auth));
+        return ResponseEntity.noContent().build();
+    }
+
 
     @GetMapping("/shares/{shareId}/access")
     public ResponseEntity<ShareAccessResponse> accessShare(
