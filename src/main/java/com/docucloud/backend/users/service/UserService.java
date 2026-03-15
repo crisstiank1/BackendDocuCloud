@@ -1,6 +1,7 @@
 package com.docucloud.backend.users.service;
 
 import com.docucloud.backend.documents.service.CategoryService;
+import com.docucloud.backend.common.service.EmailService;
 import com.docucloud.backend.users.dto.request.ChangePasswordRequest;
 import com.docucloud.backend.users.dto.request.UpdateProfileRequest;
 import com.docucloud.backend.users.dto.response.UserResponse;
@@ -11,10 +12,10 @@ import com.docucloud.backend.users.model.UserRole;
 import com.docucloud.backend.users.repository.UserRepository;
 import com.docucloud.backend.users.repository.UserRoleRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;           // ✅ import 1
-import org.springframework.data.domain.PageRequest;    // ✅ import 2
-import org.springframework.data.domain.Pageable;       // ✅ import 3
-import org.springframework.data.domain.Sort;           // ✅ import 4
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -32,28 +33,41 @@ public class UserService {
     private final UserRoleRepository userRoleRepository;
     private final PasswordEncoder passwordEncoder;
     private final CategoryService categoryService;
-    // ✅ roleRepository ELIMINADO — Role es enum, no entidad JPA
-
-    // ── Métodos sin cambios ──────────────────────────────────────────────────
+    private final EmailService emailService;
 
     public boolean existsById(Long userId) {
         return userRepository.existsById(userId);
     }
 
+    // ── Google OAuth ──────────────────────────────────────────────────────────
+
     public User findOrCreateFromGoogle(String email, String name, String picture) {
-        return userRepository.findByEmail(email)
+        boolean isNew = !userRepository.existsByEmail(email);
+
+        User user = userRepository.findByEmail(email)
                 .orElseGet(() -> createGoogleUser(email, name, picture));
+
+        // Actualiza foto y nombre si cambiaron
+        if (!isNew) {
+            user.setName(name);
+            user.setPhotoUrl(picture);
+            userRepository.save(user);
+        }
+
+        return user;
     }
 
     private User createGoogleUser(String email, String name, String picture) {
-        User user = User.builder()
-                .email(email)
-                .name(name)
-                .photoUrl(picture)
-                .provider(Provider.GOOGLE)
-                .enabled(true)
-                .password("google_" + UUID.randomUUID())
-                .build();
+        User user = new User();
+        user.setEmail(email);
+        user.setName(name);
+        user.setPhotoUrl(picture);
+        user.setProvider(Provider.GOOGLE);
+        user.setEnabled(true);
+        user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
+        user.setMaxFavorites(100);
+        user.setMaxFolders(20);
+        user.setMaxTags(50);
 
         user = userRepository.save(user);
 
@@ -64,8 +78,14 @@ public class UserService {
         userRoleRepository.save(userRole);
 
         categoryService.createDefaultCategories(user);
+
+        emailService.sendWelcome(email, name);
+
         return user;
     }
+
+
+    // ── Perfil ────────────────────────────────────────────────────────────────
 
     public UserResponse getProfile(Long userId) {
         return UserResponse.from(findById(userId));
@@ -106,7 +126,7 @@ public class UserService {
         userRepository.save(user);
     }
 
-    // ── RF-27 Límites ────────────────────────────────────────────────────────
+    // ── RF-27 Límites ─────────────────────────────────────────────────────────
 
     public boolean canCreateFolder(Long userId, Long currentFolders) {
         return currentFolders < findById(userId).getMaxFolders();
@@ -138,7 +158,7 @@ public class UserService {
         return UserResponse.from(userRepository.save(target));
     }
 
-    // ── Admin: gestión de usuarios ───────────────────────────────────────────
+    // ── Admin ─────────────────────────────────────────────────────────────────
 
     public Page<UserResponse> getAllUsers(int page, int size, String search) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
@@ -146,7 +166,7 @@ public class UserService {
                 ? userRepository.findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(
                 search, search, pageable)
                 : userRepository.findAll(pageable);
-        return users.map(UserResponse::from); // ✅ usa el factory method del record
+        return users.map(UserResponse::from);
     }
 
     public UserResponse updateRole(Long adminId, Long targetId, String roleName) {
@@ -155,7 +175,6 @@ public class UserService {
                     "Un admin no puede cambiar su propio rol");
         }
 
-        // ✅ Role es enum — se parsea directamente, sin repositorio
         Role role;
         try {
             role = Role.valueOf(roleName.toUpperCase());
@@ -165,9 +184,7 @@ public class UserService {
         }
 
         User user = findById(targetId);
-
-        // Reemplaza todos los roles existentes por el nuevo
-        userRoleRepository.deleteByUserId(targetId);   // ← ver nota abajo
+        userRoleRepository.deleteByUserId(targetId);
 
         UserRole userRole = UserRole.builder()
                 .user(user)
@@ -185,7 +202,7 @@ public class UserService {
         }
         User user = findById(targetId);
         user.setEnabled(!user.isEnabled());
-        return UserResponse.from(userRepository.save(user)); // ✅ usa from()
+        return UserResponse.from(userRepository.save(user));
     }
 
     public void deleteUser(Long adminId, Long targetId) {
@@ -201,5 +218,4 @@ public class UserService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Usuario no encontrado: " + userId));
     }
-    // ✅ toResponse() ELIMINADO — era redundante y usaba builder inexistente
 }
