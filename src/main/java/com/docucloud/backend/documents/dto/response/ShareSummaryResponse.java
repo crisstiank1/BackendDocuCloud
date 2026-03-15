@@ -9,10 +9,12 @@ import java.util.UUID;
 public record ShareSummaryResponse(
         UUID id,
         Long documentId,
+        String fileName,
         Permission permission,
         boolean hasPassword,
         boolean revoked,
         int usedCount,
+        String recipientEmail,
         Instant expiresAt,
         Instant createdAt
 ) {
@@ -20,10 +22,12 @@ public record ShareSummaryResponse(
         return new ShareSummaryResponse(
                 share.getId(),
                 share.getDocumentId(),
+                null,
                 share.getPermission(),
                 share.getPasswordHash() != null,
                 share.isRevoked(),
                 share.getUsedCount(),
+                share.getRecipientEmail(),
                 share.getExpiresAt(),
                 share.getCreatedAt()
         );

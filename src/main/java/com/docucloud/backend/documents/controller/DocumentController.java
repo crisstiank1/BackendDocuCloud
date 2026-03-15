@@ -10,7 +10,6 @@ import com.docucloud.backend.documents.service.DocumentService;
 import com.docucloud.backend.documents.service.FolderService;
 import com.docucloud.backend.documents.service.ShareService;
 import com.docucloud.backend.search.service.SearchHistoryService;
-import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
 import com.docucloud.backend.tags.dto.response.TagResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -112,6 +111,15 @@ public class DocumentController {
             Authentication auth) {
         return ResponseEntity.ok(shareService.getMyShares(getUserId(auth), includeRevoked, pageable));
     }
+
+    @GetMapping("/shares/received")
+    public ResponseEntity<Page<SharedWithMeResponse>> getSharedWithMe(
+            @PageableDefault(size = 20) Pageable pageable,
+            Authentication auth) {
+        UserDetailsImpl user = (UserDetailsImpl) auth.getPrincipal();
+        return ResponseEntity.ok(shareService.getSharedWithMe(user.getEmail(), pageable));
+    }
+
 
     @GetMapping("/shares/{shareId}/access")
     public ResponseEntity<ShareAccessResponse> accessShare(
