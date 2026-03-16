@@ -87,6 +87,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,   "/api/users/me").authenticated()
                         .requestMatchers(HttpMethod.PUT,   "/api/users/me").authenticated()
                         .requestMatchers(HttpMethod.PATCH, "/api/users/me").authenticated()
+                        // ── ✅ Logs propios — cualquier usuario autenticado ───
+                        .requestMatchers(HttpMethod.GET, "/api/audit/logs/my").authenticated()
 
                         // ── Admin ─────────────────────────────────────────────
                         .requestMatchers(HttpMethod.GET,    "/api/users").hasRole("ADMIN")
