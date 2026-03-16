@@ -48,8 +48,8 @@ public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
         String name    = oAuth2User.getAttribute("name");
         String picture = oAuth2User.getAttribute("picture");
 
-        if (email == null || !email.endsWith("@gmail.com")) {
-            throw new OAuth2AuthenticationException("Only Gmail accounts are allowed");
+        if (email == null) {
+            throw new OAuth2AuthenticationException("No se pudo obtener el email de la cuenta Google");
         }
 
         boolean isNew = !userRepository.existsByEmail(email);

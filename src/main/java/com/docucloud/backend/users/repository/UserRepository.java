@@ -8,6 +8,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.transaction.annotation.Transactional;
+import java.time.Instant;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 
@@ -27,4 +30,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Page<User> findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(
             String name, String email, Pageable pageable
     );
+
+    @Modifying
+    @Transactional
+    @Query("UPDATE User u SET u.lastActivityAt = :now WHERE u.email = :email")
+    void updateLastActivity(@Param("email") String email, @Param("now") Instant now);
+
+    @Query("SELECT u.lastActivityAt FROM User u WHERE u.email = :email")
+    Instant findLastActivityByEmail(@Param("email") String email);
+
 }

@@ -16,6 +16,14 @@ public class AuthEntryPointJwt implements AuthenticationEntryPoint {
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authException)
             throws IOException {
+
+        String path = request.getRequestURI();
+
+        // ✅ Dejar pasar el callback OAuth2 — Spring Security lo procesa internamente
+        if (path.startsWith("/login/oauth2/") || path.startsWith("/oauth2/")) {
+            return;
+        }
+
         response.setContentType("application/json");
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         new ObjectMapper().writeValue(response.getOutputStream(),

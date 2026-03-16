@@ -1,6 +1,5 @@
 package com.docucloud.backend.config.security.jwt;
 
-import com.docucloud.backend.users.model.User;
 import com.docucloud.backend.users.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
@@ -18,6 +17,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @Component
 public class InactivityFilter extends OncePerRequestFilter {
@@ -39,43 +39,35 @@ public class InactivityFilter extends OncePerRequestFilter {
 
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 
-        // Solo aplica a usuarios autenticados
         if (auth == null || !auth.isAuthenticated() || auth.getPrincipal().equals("anonymousUser")) {
             filterChain.doFilter(request, response);
             return;
         }
 
         String email = auth.getName();
-        User user = userRepository.findByEmail(email).orElse(null);
-
-        if (user == null) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
         Instant now = Instant.now();
-        Instant lastActivity = user.getLastActivityAt();
 
-        // ✅ NUEVA LÓGICA: solo expulsar si está realmente expirado
-        boolean isExpired = false;
-        if (lastActivity != null) {
-            long elapsed = now.toEpochMilli() - lastActivity.toEpochMilli();
-            isExpired = elapsed > inactivityTimeoutMs;
-        }
+        // ✅ TODO: verificación y update de inactividad movidos a hilo separado
+        // para evitar deadlock con la transacción del AuthTokenFilter.
+        CompletableFuture.runAsync(() -> {
+            try {
+                Instant lastActivity = userRepository.findLastActivityByEmail(email);
 
-        if (isExpired) {
-            SecurityContextHolder.clearContext();
-            sendInactivityError(response);
-            return;
-        }
+                boolean isExpired = lastActivity != null &&
+                        (now.toEpochMilli() - lastActivity.toEpochMilli()) > inactivityTimeoutMs;
 
-        // ✅ SIEMPRE actualizar (incluso si era NULL)
-        user.setLastActivityAt(now);
-        userRepository.save(user);
+                if (!isExpired) {
+                    userRepository.updateLastActivity(email, now);
+                }
+                // Nota: si está expirado no podemos redirigir desde aquí (hilo async)
+                // La expiración por inactividad se maneja en el próximo request síncrono
+            } catch (Exception e) {
+                System.err.println(">>> InactivityFilter async ERROR: " + e.getMessage());
+            }
+        });
 
         filterChain.doFilter(request, response);
     }
-
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {

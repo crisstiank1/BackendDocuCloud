@@ -33,7 +33,16 @@ public class UserController {
 
     @GetMapping("/me")
     public ResponseEntity<UserResponse> getProfile(Authentication auth) {
-        return ResponseEntity.ok(userService.getProfile(getUserId(auth)));
+        System.out.println("📥 LLEGÓ A /api/users/me");
+        try {
+            Long userId = getUserId(auth);
+            System.out.println(">>> /api/users/me para userId: " + userId + ", username: " + auth.getName());
+            return ResponseEntity.ok(userService.getProfile(userId));
+        } catch (Exception e) {
+            System.err.println("❌ Error en /api/users/me: " + e.getMessage());
+            e.printStackTrace();
+            throw e; // relanza para que Spring lo convierta en HTTP error
+        }
     }
 
     @PutMapping("/me")
