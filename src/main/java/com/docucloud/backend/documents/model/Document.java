@@ -1,6 +1,6 @@
 package com.docucloud.backend.documents.model;
 
-import com.docucloud.backend.tags.model.Tag;  // ← NUEVO IMPORT
+import com.docucloud.backend.tags.model.Tag;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -59,7 +59,9 @@ public class Document {
     private Long categoryId;
 
 
-    // ← NUEVA RELACIÓN TAGS
+    @OneToOne(mappedBy = "document", fetch = FetchType.EAGER, cascade = CascadeType.ALL)
+    private DocumentCategory classification;
+
     @ManyToMany
     @JoinTable(
             name = "document_tags",
@@ -69,7 +71,10 @@ public class Document {
     private Set<Tag> tags = new HashSet<>();
 
     @PrePersist
-    void prePersist() { createdAt = Instant.now(); updatedAt = Instant.now(); }
+    void prePersist() {
+        if (createdAt == null) createdAt = Instant.now();
+        updatedAt = Instant.now();
+    }
 
     @PreUpdate
     void preUpdate() { updatedAt = Instant.now(); }

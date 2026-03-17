@@ -82,11 +82,11 @@ public class SecurityConfig {
                         .requestMatchers("/api/dev/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/documents/shares/*/access").permitAll()
 
-                        // ── Rutas /me — DEBEN ir ANTES que /{id} ─────────────
-                        // Si no, Spring las interpreta como /{id} y exige ADMIN
                         .requestMatchers(HttpMethod.GET,   "/api/users/me").authenticated()
                         .requestMatchers(HttpMethod.PUT,   "/api/users/me").authenticated()
                         .requestMatchers(HttpMethod.PATCH, "/api/users/me").authenticated()
+                        // ── ✅ Logs propios — cualquier usuario autenticado ───
+                        .requestMatchers(HttpMethod.GET, "/api/audit/logs/my").authenticated()
 
                         // ── Admin ─────────────────────────────────────────────
                         .requestMatchers(HttpMethod.GET,    "/api/users").hasRole("ADMIN")

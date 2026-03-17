@@ -3,6 +3,7 @@ package com.docucloud.backend.audit.controller;
 import com.docucloud.backend.audit.model.ActivityHistory;
 import com.docucloud.backend.audit.service.AuditService;
 import com.docucloud.backend.auth.security.UserDetailsImpl;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -13,40 +14,19 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/admin/audit")
-public class AuditController {
+@RequestMapping("/api/audit")
+@RequiredArgsConstructor
+public class MyAuditController {
 
     private final AuditService auditService;
 
-    public AuditController(AuditService auditService) {
-        this.auditService = auditService;
-    }
-
-    @PreAuthorize("hasRole('ADMIN')")
-    @GetMapping("/logs")
-    public ResponseEntity<Page<ActivityHistory>> getLogs(
-            @RequestParam(required = false) Long userId,
-            @RequestParam(required = false) String action,
-            @RequestParam(required = false) String resourceType,
-            @RequestParam(required = false) String from,
-            @RequestParam(required = false) String to,
-            @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
-
-        return ResponseEntity.ok(
-                auditService.getLogsForAdmin(userId, action, resourceType, from, to, pageable)
-        );
-    }
-
-    // ✅ Endpoint para usuarios normales — solo sus propios logs
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/logs/my")
     public ResponseEntity<Page<ActivityHistory>> getMyLogs(
             @AuthenticationPrincipal UserDetails userDetails,
             @PageableDefault(size = 10, sort = "createdAt") Pageable pageable) {
 
-        // ✅ UserDetailsImpl es la clase correcta del proyecto
         Long userId = ((UserDetailsImpl) userDetails).getId();
-
         return ResponseEntity.ok(
                 auditService.getLogsForAdmin(userId, null, null, null, null, pageable)
         );

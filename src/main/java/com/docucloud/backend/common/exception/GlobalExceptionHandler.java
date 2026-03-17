@@ -10,6 +10,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -61,9 +62,11 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ex.getStatusCode()).body(body);
     }
 
-    // ← NUEVO: credenciales inválidas → 401 (no 500)
     @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<?> handleAuthentication(AuthenticationException ex) {
+    public ResponseEntity<?> handleAuthentication(AuthenticationException ex) throws AuthenticationException {
+        if (ex instanceof OAuth2AuthenticationException) {
+            throw ex; // Spring Security lo maneja internamente
+        }
         Map<String, Object> body = Map.of(
                 "timestamp", Instant.now().toString(),
                 "status", 401,
@@ -87,7 +90,10 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<?> handleGeneric(Exception ex) {
+    public ResponseEntity<?> handleGeneric(Exception ex) throws Exception {
+        if (ex instanceof OAuth2AuthenticationException) {
+            throw ex;
+        }
         Map<String, Object> body = Map.of(
                 "timestamp", Instant.now().toString(),
                 "status", 500,

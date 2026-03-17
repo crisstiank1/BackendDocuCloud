@@ -18,7 +18,6 @@ public class HttpAuditInterceptor implements HandlerInterceptor {
 
     private static final String START = "auditStartNanos";
 
-    // Allowlist: solo params “seguros” y típicos (ajústalo a tu app)
     private static final Set<String> SAFE_QUERY_KEYS = Set.of("page", "size", "sort", "q", "filter");
 
     private final AuditService auditService;
@@ -39,6 +38,26 @@ public class HttpAuditInterceptor implements HandlerInterceptor {
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
                                 Object handler, Exception ex) {
 
+        String method = request.getMethod();
+        String uri    = request.getRequestURI();
+
+        // ── FILTRO 1: GETs — solo registrar acciones reales del usuario ────────
+        if ("GET".equalsIgnoreCase(method)) {
+            boolean isRealUserAction =
+                    uri.matches(".*/documents/\\d+/download.*") ||
+                            uri.contains("/documents/search");
+
+            if (!isRealUserAction) return;
+        }
+
+        // ── FILTRO 2: rutas internas del sistema — nunca auditar ───────────────
+        if (uri.startsWith("/api/auth/refresh"))     return;
+        if (uri.startsWith("/api/auth/me"))          return;
+        if (uri.startsWith("/api/users/me"))         return;
+        if (uri.startsWith("/api/admin/audit"))      return;
+        if (uri.startsWith("/actuator"))             return;
+
+        // ── A partir de aquí: POST, PUT, PATCH, DELETE + GETs reales ──────────
         long start = (request.getAttribute(START) instanceof Long v) ? v : System.nanoTime();
         long durationMs = (System.nanoTime() - start) / 1_000_000;
 
@@ -50,25 +69,21 @@ public class HttpAuditInterceptor implements HandlerInterceptor {
         String userAgent = request.getHeader("User-Agent");
 
         ObjectNode details = objectMapper.createObjectNode();
-        details.put("method", request.getMethod());
-        details.put("uri", request.getRequestURI()); // sin query
+        details.put("method", method);
+        details.put("uri", uri);
         details.put("status", status);
         details.put("durationMs", durationMs);
 
-        // Query: NO guardes todo; solo allowlist y solo en GET
         boolean hasQuery = request.getQueryString() != null;
         details.put("queryPresent", hasQuery);
 
-        if (hasQuery && "GET".equalsIgnoreCase(request.getMethod())) {
+        if (hasQuery && "GET".equalsIgnoreCase(method)) {
             ObjectNode q = objectMapper.createObjectNode();
             for (String key : SAFE_QUERY_KEYS) {
                 String[] values = request.getParameterValues(key);
                 if (values == null || values.length == 0) continue;
 
-                // Si es multi-value, lo compactamos
                 String value = (values.length == 1) ? values[0] : String.join(",", values);
-
-                // Opcional: truncar para evitar strings enormes
                 if (value != null && value.length() > 200) value = value.substring(0, 200);
 
                 q.put(key, value);

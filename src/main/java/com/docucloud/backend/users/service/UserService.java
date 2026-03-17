@@ -17,6 +17,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -88,6 +89,13 @@ public class UserService {
     // ── Perfil ────────────────────────────────────────────────────────────────
 
     public UserResponse getProfile(Long userId) {
+        System.out.println(">>> UserService.getProfile(" + userId + ")");
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found: " + userId));
+
+        System.out.println("✅ Usuario encontrado: " + user.getEmail() + ", enabled=" + user.isEnabled() + ", roles=" + user.getRoles());
+
         return UserResponse.from(findById(userId));
     }
 
