@@ -26,9 +26,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.scheduling.annotation.Async;            // ← NUEVO
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -46,7 +47,7 @@ public class DocumentService {
 
     @Autowired private TagRepository tagRepository;
     @Autowired private DocumentTagRepository documentTagRepository;
-    @Autowired private ClassifierService classifierService;        // ← NUEVO
+    @Autowired private ClassifierService classifierService;
 
     private final DocumentRepository repo;
     private final S3KeyService keyService;
@@ -70,15 +71,15 @@ public class DocumentService {
             @Value("${docucloud.aws.s3.presignGetMinutes:10}") long getMinutes,
             @Value("${app.document.max-size-mb:50}") long maxSizeMb
     ) {
-        this.repo = repo;
-        this.keyService = keyService;
-        this.presignService = presignService;
-        this.userRepository = userRepository;
+        this.repo            = repo;
+        this.keyService      = keyService;
+        this.presignService  = presignService;
+        this.userRepository  = userRepository;
         this.favoriteService = favoriteService;
-        this.bucket = bucket;
-        this.putDuration = Duration.ofMinutes(putMinutes);
-        this.getDuration = Duration.ofMinutes(getMinutes);
-        this.maxSizeMb = maxSizeMb;
+        this.bucket          = bucket;
+        this.putDuration     = Duration.ofMinutes(putMinutes);
+        this.getDuration     = Duration.ofMinutes(getMinutes);
+        this.maxSizeMb       = maxSizeMb;
     }
 
     // ─── UPLOAD ───────────────────────────────────────────────────────────────
@@ -103,7 +104,8 @@ public class DocumentService {
 
         PresignedUrlResponse url = presignService.presignPut(bucket, s3Key, req.mimeType(), putDuration);
 
-        log.info("✅ Init upload user={} doc={} size={}MB", userId, doc.getId(), req.sizeBytes() / 1024 / 1024);
+        log.info("✅ Init upload user={} doc={} size={}MB",
+                userId, doc.getId(), req.sizeBytes() / 1024 / 1024);
         return new InitUploadResponse(doc.getId(), url.url(), url.expiresAt(), s3Key);
     }
 
@@ -116,11 +118,20 @@ public class DocumentService {
         doc.setFileHash(req.fileHash());
         doc.setStatus(DocumentStatus.AVAILABLE);
         repo.save(doc);
-
         logActivity(userId, docId, "UPLOAD_COMPLETED");
 
-        // ← NUEVO: lanza clasificación AI en background (no bloquea la respuesta)
-        classifierService.classifyAndAssign(docId, doc.getFileName(), userId);
+
+        final Long  capturedDocId  = docId;
+        final String capturedName  = doc.getFileName();
+        final Long  capturedUserId = userId;
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                log.info("🧠 Triggering async classification post-commit - docId={}", capturedDocId);
+                classifierService.classifyAndAssignAsync(capturedDocId, capturedName, capturedUserId);
+            }
+        });
     }
 
     // ─── LISTADO ──────────────────────────────────────────────────────────────
@@ -179,7 +190,8 @@ public class DocumentService {
         Instant fromInstant = null;
         if (fromDate != null && !fromDate.isBlank()) {
             try {
-                fromInstant = LocalDate.parse(fromDate.trim()).atStartOfDay(ZoneOffset.UTC).toInstant();
+                fromInstant = LocalDate.parse(fromDate.trim())
+                        .atStartOfDay(ZoneOffset.UTC).toInstant();
             } catch (Exception e) {
                 throw new IllegalArgumentException("fromDate inválido: '" + fromDate + "'");
             }
@@ -227,7 +239,7 @@ public class DocumentService {
         return new DownloadUrlResponse(url.url(), url.expiresAt());
     }
 
-    // ─── PREVIEW ─────────────────────────────────────────────────────────────
+    // ─── PREVIEW ──────────────────────────────────────────────────────────────
 
     public DownloadUrlResponse getPreviewUrl(Long userId, Long docId) {
         Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)

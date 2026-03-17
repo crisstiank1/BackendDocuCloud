@@ -19,19 +19,15 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
-import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-
-// ✅ FIX: Reemplaza HttpSessionOAuth2AuthorizationRequestRepository por cookie-based
-import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizationRequestRepository;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -49,9 +45,6 @@ public class SecurityConfig {
 
     @Value("${app.cors.allowed-origins:http://localhost:5173}")
     private List<String> allowedOrigins;
-
-    @Value("${app.frontend.url:http://localhost:5173}")
-    private String frontendUrl;
 
     @Autowired
     public SecurityConfig(
@@ -74,14 +67,7 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-
-                // ✅ FIX PRINCIPAL: STATELESS evita que Spring restaure la sesión OAuth2
-                // y sobreescriba el SecurityContext que pone AuthTokenFilter.
-                // El flujo OAuth2 funciona igual porque usa su propio repositorio de estado.
-                .sessionManagement(sm -> sm
-                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-                )
-
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(unauthorizedHandler)
                         .accessDeniedHandler(accessDeniedHandler())
@@ -96,12 +82,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/dev/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/documents/shares/*/access").permitAll()
 
-                        // ── Rutas /me — DEBEN ir ANTES que /{id} ─────────────
                         .requestMatchers(HttpMethod.GET,   "/api/users/me").authenticated()
                         .requestMatchers(HttpMethod.PUT,   "/api/users/me").authenticated()
                         .requestMatchers(HttpMethod.PATCH, "/api/users/me").authenticated()
-
-                        // ── Logs propios ──────────────────────────────────────
+                        // ── ✅ Logs propios — cualquier usuario autenticado ───
                         .requestMatchers(HttpMethod.GET, "/api/audit/logs/my").authenticated()
 
                         // ── Admin ─────────────────────────────────────────────
@@ -117,14 +101,9 @@ public class SecurityConfig {
                 )
                 .userDetailsService(userDetailsService)
                 .oauth2Login(oauth2 -> oauth2
-                        .authorizationEndpoint(auth -> auth
-                                // ✅ FIX: Guarda el state OAuth2 en sesión HTTP solo durante
-                                // el flujo de autorización (no contamina requests posteriores)
-                                .authorizationRequestRepository(authorizationRequestRepository())
-                        )
                         .userInfoEndpoint(info -> info.userService(customOAuth2UserService))
                         .successHandler(oAuth2SuccessHandler)
-                        .failureHandler(oAuth2FailureHandler())
+                        .defaultSuccessUrl("/api/oauth2/success", true)
                 );
 
         http.addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class);
@@ -149,26 +128,6 @@ public class SecurityConfig {
             );
 
             new ObjectMapper().writeValue(response.getWriter(), body);
-        };
-    }
-
-    // ✅ Mantiene HttpSession solo para el flujo OAuth2 (guardar el state/nonce)
-    // Con STATELESS esto solo aplica durante /oauth2/authorization/** y /login/oauth2/**
-    @Bean
-    public HttpSessionOAuth2AuthorizationRequestRepository authorizationRequestRepository() {
-        return new HttpSessionOAuth2AuthorizationRequestRepository();
-    }
-
-    @Bean
-    public AuthenticationFailureHandler oAuth2FailureHandler() {
-        return (request, response, exception) -> {
-            String message = URLEncoder.encode(
-                    exception.getMessage() != null
-                            ? exception.getMessage()
-                            : "Error al autenticar con Google",
-                    StandardCharsets.UTF_8
-            );
-            response.sendRedirect(frontendUrl + "/auth/login?error=" + message);
         };
     }
 

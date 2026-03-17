@@ -26,11 +26,13 @@ public class CategoryService {
     @Transactional
     public void createDefaultCategories(User user) {
         List<Object[]> defaults = List.of(
-                new Object[]{"Facturas",    "#f59e0b"},
-                new Object[]{"Contratos",   "#6366f1"},
-                new Object[]{"Informes",    "#3b82f6"},
-                new Object[]{"Personal",    "#10b981"},
-                new Object[]{"Otros",       "#8b5cf6"}
+                new Object[]{"Facturas",   "#f59e0b"},
+                new Object[]{"Contratos",  "#6366f1"},
+                new Object[]{"Informes",   "#3b82f6"},
+                new Object[]{"Personal",   "#10b981"},
+                new Object[]{"Legal",      "#ef4444"},
+                new Object[]{"Proyectos",  "#f97316"},
+                new Object[]{"Otros",      "#8b5cf6"}
         );
 
         for (Object[] cat : defaults) {
@@ -41,6 +43,7 @@ public class CategoryService {
             categoryRepository.save(category);
         }
     }
+
 
 
     // ─── Listar ───────────────────────────────────────────────────────────────
