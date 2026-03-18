@@ -4,6 +4,7 @@ import com.docucloud.backend.auth.security.UserDetailsImpl;
 import com.docucloud.backend.documents.dto.request.CompleteUploadRequest;
 import com.docucloud.backend.documents.dto.request.InitUploadRequest;
 import com.docucloud.backend.documents.dto.request.ShareRequest;
+import com.docucloud.backend.documents.dto.request.UpdateSharePermissionRequest;
 import com.docucloud.backend.documents.dto.response.*;
 import com.docucloud.backend.documents.service.CategoryService;
 import com.docucloud.backend.documents.service.DocumentService;
@@ -126,6 +127,16 @@ public class DocumentController {
             Authentication auth) {
         shareService.revokeShare(shareId, getUserId(auth));
         return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/shares/{shareId}/permission")
+    public ResponseEntity<ShareResponse> updateSharePermission(
+            @PathVariable UUID shareId,
+            @Valid @RequestBody UpdateSharePermissionRequest request,
+            Authentication auth) {
+        return ResponseEntity.ok(
+                shareService.updateSharePermission(shareId, request.getPermission(), getUserId(auth))
+        );
     }
 
 

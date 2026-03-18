@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 @Slf4j
@@ -20,6 +21,7 @@ public class EmailService {
     }
 
     // ─── Bienvenida al registrarse ────────────────────────────────────────────
+    @Async
     public void sendWelcome(String to, String name) {
         try {
             SimpleMailMessage msg = new SimpleMailMessage();
@@ -41,6 +43,7 @@ public class EmailService {
     }
 
     // ─── Recuperación de contraseña ───────────────────────────────────────────
+    @Async
     public void sendPasswordResetEmail(String to, String resetUrl) {
         log.info("[Email] Preparando correo para: {} desde: {}", to, fromEmail);
         try {
@@ -64,6 +67,7 @@ public class EmailService {
     }
 
     // ─── Share concedido ──────────────────────────────────────────────────────
+    @Async
     public void sendShareGranted(String to, String documentName, String permission) {
         try {
             SimpleMailMessage msg = new SimpleMailMessage();
@@ -85,6 +89,7 @@ public class EmailService {
     }
 
     // ─── Share revocado ───────────────────────────────────────────────────────
+    @Async
     public void sendShareRevoked(String to, String documentName) {
         try {
             SimpleMailMessage msg = new SimpleMailMessage();
@@ -103,6 +108,7 @@ public class EmailService {
     }
 
     // ─── Permiso modificado ───────────────────────────────────────────────────
+    @Async
     public void sendPermissionChanged(String to, String documentName, String newPermission) {
         try {
             SimpleMailMessage msg = new SimpleMailMessage();
@@ -122,6 +128,7 @@ public class EmailService {
     }
 
     // ─── Contraseña cambiada ──────────────────────────────────────────────────
+    @Async
     public void sendPasswordChanged(String to) {
         try {
             SimpleMailMessage msg = new SimpleMailMessage();

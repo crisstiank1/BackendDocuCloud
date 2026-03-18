@@ -19,13 +19,12 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
     boolean existsByOwnerUserIdAndName(Long ownerUserId, String name);
 
     @Query("""
-        SELECT COUNT(d) FROM Document d
-        WHERE d.ownerUserId = :userId
-          AND d.categoryId = :categoryId
-          AND d.deletedAt IS NULL
-        """)
+    SELECT COUNT(dc) FROM DocumentCategory dc
+    WHERE dc.document.ownerUserId = :userId
+      AND dc.category.id = :categoryId
+      AND dc.document.deletedAt IS NULL
+    """)
     long countDocumentsByCategoryId(
             @Param("userId") Long userId,
-            @Param("categoryId") Long categoryId
-    );
+            @Param("categoryId") Long categoryId);
 }

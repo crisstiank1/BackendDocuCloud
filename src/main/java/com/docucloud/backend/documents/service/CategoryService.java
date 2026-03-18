@@ -3,7 +3,10 @@ package com.docucloud.backend.documents.service;
 import com.docucloud.backend.documents.dto.request.CreateCategoryRequest;
 import com.docucloud.backend.documents.dto.response.CategoryResponse;
 import com.docucloud.backend.documents.model.Category;
+import com.docucloud.backend.documents.model.Document;
+import com.docucloud.backend.documents.model.DocumentCategory;
 import com.docucloud.backend.documents.repository.CategoryRepository;
+import com.docucloud.backend.documents.repository.DocumentCategoryRepository;
 import com.docucloud.backend.documents.repository.DocumentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +25,7 @@ public class CategoryService {
 
     private final CategoryRepository categoryRepository;
     private final DocumentRepository documentRepository;
+    private final DocumentCategoryRepository documentCategoryRepository;
 
     @Transactional
     public void createDefaultCategories(User user) {
@@ -43,8 +47,6 @@ public class CategoryService {
             categoryRepository.save(category);
         }
     }
-
-
 
     // ─── Listar ───────────────────────────────────────────────────────────────
 
@@ -90,13 +92,10 @@ public class CategoryService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Categoría no encontrada"));
 
-        // Desasocia documentos antes de borrar para no violar el FK
-        documentRepository
-                .findByCategoryIdAndOwnerUserIdAndDeletedAtIsNull(categoryId, userId)
-                .forEach(doc -> {
-                    doc.setCategoryId(null);
-                    documentRepository.save(doc);
-                });
+        // Elimina las clasificaciones asociadas antes de borrar la categoría
+        documentCategoryRepository
+                .findByCategory_IdAndDocument_OwnerUserIdAndDocument_DeletedAtIsNull(categoryId, userId)
+                .forEach(documentCategoryRepository::delete);
 
         categoryRepository.delete(category);
         log.info("🗑️ Category deleted - user={} categoryId={}", userId, categoryId);
@@ -106,18 +105,25 @@ public class CategoryService {
 
     @Transactional
     public void assignCategory(Long userId, Long documentId, Long categoryId) {
-        categoryRepository
+        Category category = categoryRepository
                 .findByIdAndOwnerUserId(categoryId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Categoría no encontrada"));
 
-        documentRepository
+        Document doc = documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(documentId, userId)
-                .ifPresentOrElse(
-                        doc -> { doc.setCategoryId(categoryId); documentRepository.save(doc); },
-                        () -> { throw new ResponseStatusException(
-                                HttpStatus.NOT_FOUND, "Documento no encontrado"); }
-                );
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Documento no encontrado"));
+
+        DocumentCategory classification = doc.getClassification();
+        if (classification == null) {
+            classification = new DocumentCategory();
+            classification.setDocument(doc);
+        }
+        classification.setCategory(category);
+        classification.setIsAutomaticallyAssigned(false);
+        classification.setConfidenceScore(null);
+        documentCategoryRepository.save(classification);
 
         log.info("📂 Category assigned - user={} doc={} category={}", userId, documentId, categoryId);
     }
@@ -128,14 +134,15 @@ public class CategoryService {
     public void removeCategory(Long userId, Long documentId) {
         documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(documentId, userId)
-                .ifPresentOrElse(
-                        doc -> { doc.setCategoryId(null); documentRepository.save(doc); },
-                        () -> { throw new ResponseStatusException(
-                                HttpStatus.NOT_FOUND, "Documento no encontrado"); }
-                );
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Documento no encontrado"));
+
+        documentCategoryRepository.deleteByDocument_Id(documentId);
 
         log.info("📂 Category removed - user={} doc={}", userId, documentId);
     }
+
+    // ─── Actualizar ───────────────────────────────────────────────────────────
 
     @Transactional
     public CategoryResponse updateCategory(Long userId, Long categoryId, CreateCategoryRequest request) {
@@ -152,5 +159,4 @@ public class CategoryService {
         return CategoryResponse.from(category,
                 categoryRepository.countDocumentsByCategoryId(userId, categoryId));
     }
-
 }

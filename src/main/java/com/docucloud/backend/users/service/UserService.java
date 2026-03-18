@@ -132,6 +132,9 @@ public class UserService {
 
         user.setPassword(passwordEncoder.encode(request.newPassword()));
         userRepository.save(user);
+
+        // ✅ Notificar al usuario que su contraseña fue cambiada
+        emailService.sendPasswordChanged(user.getEmail());
     }
 
     // ── RF-27 Límites ─────────────────────────────────────────────────────────

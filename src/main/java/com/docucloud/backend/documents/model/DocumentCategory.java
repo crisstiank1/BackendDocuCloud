@@ -8,25 +8,20 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "document_categories")
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
+@Getter @Setter
+@NoArgsConstructor @AllArgsConstructor @Builder
 public class DocumentCategory {
 
-    @EmbeddedId
-    private DocumentCategoryId id;
+    @Id
+    @Column(name = "document_id")
+    private Long documentId;
 
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @MapsId("documentId")
+    @OneToOne(fetch = FetchType.LAZY)
+    @MapsId
     @JoinColumn(name = "document_id")
     private Document document;
 
-
     @ManyToOne(fetch = FetchType.LAZY)
-    @MapsId("categoryId")
     @JoinColumn(name = "category_id")
     private Category category;
 
@@ -42,17 +37,6 @@ public class DocumentCategory {
 
     @PrePersist
     protected void onCreate() {
-        if (createdAt == null) {
-            createdAt = LocalDateTime.now();
-        }
-    }
-
-    // Métodos de conveniencia para acceder a los IDs sin navegar por el objeto embebido
-    public Long getDocumentId() {
-        return id != null ? id.getDocumentId() : null;
-    }
-
-    public Long getCategoryId() {
-        return id != null ? id.getCategoryId() : null;
+        if (createdAt == null) createdAt = LocalDateTime.now();
     }
 }

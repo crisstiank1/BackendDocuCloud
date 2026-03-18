@@ -55,10 +55,6 @@ public class Document {
     @Column(name = "folder_id")
     private Long folderId;
 
-    @Column(name = "category_id")
-    private Long categoryId;
-
-
     @OneToOne(mappedBy = "document", fetch = FetchType.EAGER, cascade = CascadeType.ALL)
     private DocumentCategory classification;
 

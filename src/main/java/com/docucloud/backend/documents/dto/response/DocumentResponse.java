@@ -3,8 +3,8 @@ package com.docucloud.backend.documents.dto.response;
 import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.model.DocumentStatus;
 
+import java.math.BigDecimal;
 import java.time.Instant;
-
 
 public record DocumentResponse(
         Long id,
@@ -16,6 +16,7 @@ public record DocumentResponse(
         Long folderId,
         Long categoryId,
         boolean isAutomaticallyAssigned,
+        BigDecimal confidenceScore,
         Instant createdAt,
         Instant updatedAt,
         boolean isFavorite
@@ -28,13 +29,14 @@ public record DocumentResponse(
     public static DocumentResponse from(Document d, boolean isFavorite) {
         if (d == null) return null;
 
-        Long catId = d.getCategoryId(); // El ID simple de la columna en la tabla documents
+        Long catId = null;
         boolean auto = false;
+        BigDecimal confidence = null;
 
-        // Si la relación classification existe, sacamos los datos reales
         if (d.getClassification() != null) {
-            catId = d.getClassification().getCategory().getId(); // Aseguramos el ID de la tabla intermedia
-            auto = Boolean.TRUE.equals(d.getClassification().getIsAutomaticallyAssigned());
+            catId      = d.getClassification().getCategory().getId();
+            auto       = Boolean.TRUE.equals(d.getClassification().getIsAutomaticallyAssigned());
+            confidence = d.getClassification().getConfidenceScore();
         }
 
         return new DocumentResponse(
@@ -47,6 +49,7 @@ public record DocumentResponse(
                 d.getFolderId(),
                 catId,
                 auto,
+                confidence,
                 d.getCreatedAt(),
                 d.getUpdatedAt(),
                 isFavorite
