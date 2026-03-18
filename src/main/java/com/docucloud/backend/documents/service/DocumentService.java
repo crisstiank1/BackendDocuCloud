@@ -309,4 +309,14 @@ public class DocumentService {
                 .collect(Collectors.toSet());
         return favoriteService.getFavoriteIdsByDocumentIds(userId, docIds);
     }
+
+    // ─── STORAGE ──────────────────────────────────────────────────────────────
+
+    public long getStorageUsedByUser(Long userId) {
+        return repo
+                .findByOwnerUserIdAndStatusNotAndDeletedAtIsNull(userId, DocumentStatus.DELETED)
+                .stream()
+                .mapToLong(Document::getSizeBytes)
+                .sum();
+    }
 }

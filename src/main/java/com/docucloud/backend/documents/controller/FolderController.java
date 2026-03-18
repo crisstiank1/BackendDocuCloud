@@ -1,5 +1,6 @@
 package com.docucloud.backend.documents.controller;
 
+import com.docucloud.backend.audit.annotation.Audited;
 import com.docucloud.backend.documents.dto.request.CreateFolderRequest;
 import com.docucloud.backend.documents.dto.request.RenameFolderRequest;
 import com.docucloud.backend.documents.dto.response.DocumentResponse;
@@ -31,6 +32,7 @@ public class FolderController {
     }
 
     @PostMapping
+    @Audited(action = "FOLDER_CREATE", resourceType = "Folder")
     public ResponseEntity<FolderResponse> createFolder(
             @Valid @RequestBody CreateFolderRequest request,
             Authentication auth) {
@@ -54,6 +56,7 @@ public class FolderController {
     }
 
     @PatchMapping("/{folderId}")
+    @Audited(action = "FOLDER_RENAME", resourceType = "Folder", resourceIdArgIndex = 0)
     public ResponseEntity<FolderResponse> renameFolder(
             @PathVariable Long folderId,
             @Valid @RequestBody RenameFolderRequest request,
@@ -63,6 +66,7 @@ public class FolderController {
     }
 
     @PostMapping("/{folderId}/documents/{docId}")
+    @Audited(action = "FOLDER_MOVE", resourceType = "Document", resourceIdArgIndex = 1)
     public ResponseEntity<DocumentResponse> moveDocument(
             @PathVariable Long folderId,
             @PathVariable Long docId,
@@ -71,8 +75,8 @@ public class FolderController {
                 folderService.moveToFolder(getUserId(auth), docId, folderId));
     }
 
-
     @DeleteMapping("/{folderId}")
+    @Audited(action = "FOLDER_DELETE", resourceType = "Folder", resourceIdArgIndex = 0)
     public ResponseEntity<Void> deleteFolder(
             @PathVariable Long folderId,
             Authentication auth) {

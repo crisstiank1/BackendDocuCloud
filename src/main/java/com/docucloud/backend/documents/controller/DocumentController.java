@@ -19,10 +19,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -216,5 +219,14 @@ public class DocumentController {
             @PathVariable Long documentId,
             Authentication auth) {
         return ResponseEntity.ok(documentService.getPreviewUrl(getUserId(auth), documentId));
+    }
+
+    // ── ALMACENAMIENTO ──────────────────────────────────────────────
+
+    @GetMapping("/storage")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> getStorageUsed(@AuthenticationPrincipal UserDetailsImpl userDetails) {
+        long usedBytes = documentService.getStorageUsedByUser(userDetails.getId());
+        return ResponseEntity.ok(Map.of("usedBytes", usedBytes));
     }
 }
