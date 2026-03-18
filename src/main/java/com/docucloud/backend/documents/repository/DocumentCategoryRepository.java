@@ -1,7 +1,6 @@
 package com.docucloud.backend.documents.repository;
 
 import com.docucloud.backend.documents.model.DocumentCategory;
-import com.docucloud.backend.documents.model.DocumentCategoryId;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -9,14 +8,18 @@ import java.util.List;
 
 @Repository
 public interface DocumentCategoryRepository
-        extends JpaRepository<DocumentCategory, DocumentCategoryId> {
+        extends JpaRepository<DocumentCategory, Long> {  // ← Long, ya no DocumentCategoryId
 
-    // Todas las clasificaciones AI de un documento
-    List<DocumentCategory> findByIdDocumentId(Long documentId);
+    // Todas las clasificaciones de un documento
+    List<DocumentCategory> findByDocument_Id(Long documentId);  // ← era findByIdDocumentId
 
-    // Cuántas clasificaciones AI tiene una categoría
-    long countByIdCategoryIdAndIsAutomaticallyAssignedTrue(Long categoryId);
+    // Cuántas clasificaciones tiene una categoría
+    long countByCategory_IdAndIsAutomaticallyAssignedTrue(Long categoryId);  // ← era findByIdCategoryId
 
-    // Eliminar todas las clasificaciones de un documento (útil en softDelete)
-    void deleteByIdDocumentId(Long documentId);
+    // Eliminar clasificación de un documento
+    void deleteByDocument_Id(Long documentId);  // ← era deleteByIdDocumentId
+
+    // Para desasociar docs cuando se borra una categoría (nuevo)
+    List<DocumentCategory> findByCategory_IdAndDocument_OwnerUserIdAndDocument_DeletedAtIsNull(
+            Long categoryId, Long ownerUserId);
 }

@@ -39,7 +39,7 @@ public class ShareService {
     private final S3PresignService presignService;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
-    private final UserRepository userRepository;       // ← NUEVO
+    private final UserRepository userRepository;
     private final String baseUrl;
     private final long getMinutes;
 
@@ -49,7 +49,7 @@ public class ShareService {
             S3PresignService presignService,
             PasswordEncoder passwordEncoder,
             EmailService emailService,
-            UserRepository userRepository,             // ← NUEVO
+            UserRepository userRepository,
             @Value("${app.base-url}") String baseUrl,
             @Value("${docucloud.aws.s3.presignGetMinutes:10}") long getMinutes
     ) {
@@ -58,7 +58,7 @@ public class ShareService {
         this.presignService = presignService;
         this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
-        this.userRepository = userRepository;          // ← NUEVO
+        this.userRepository = userRepository;
         this.baseUrl = baseUrl;
         this.getMinutes = getMinutes;
     }
@@ -212,6 +212,37 @@ public class ShareService {
 
                     return SharedWithMeResponse.from(share, doc, sharedBy);
                 });
+    }
+
+    public ShareResponse updateSharePermission(UUID shareId, Permission newPermission, Long userId) {
+        DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Share no encontrado o ya revocado"));
+
+        if (!share.getSharedByUserId().equals(userId))
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN, "No tienes permisos para modificar este enlace");
+
+        share.setPermission(newPermission);
+        shareRepository.save(share);
+
+        if (share.getRecipientEmail() != null) {
+            Document doc = documentRepository
+                    .findByIdAndDeletedAtIsNull(share.getDocumentId())
+                    .orElse(null);
+            if (doc != null)
+                emailService.sendPermissionChanged(
+                        share.getRecipientEmail(),
+                        doc.getFileName(),
+                        newPermission.name()
+                );
+        }
+
+        log.info("🔄 Share permission updated - user={} shareId={} newPermission={}",
+                userId, shareId, newPermission);
+
+        String shareUrl = baseUrl + "/api/documents/shares/" + share.getId() + "/access";
+        return new ShareResponse(shareUrl, share.getId(), share.getExpiresAt());
     }
 
     // ─── Helper: validar share ────────────────────────────────────────────────

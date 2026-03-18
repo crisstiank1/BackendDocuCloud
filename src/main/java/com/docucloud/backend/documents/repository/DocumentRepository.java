@@ -52,11 +52,4 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
 
     // Documentos por status (útil para analytics)
     long countByOwnerUserIdAndStatusAndDeletedAtIsNull(Long ownerUserId, DocumentStatus status);
-
-    // Necesario para desasociar docs al eliminar una categoría
-    List<Document> findByCategoryIdAndOwnerUserIdAndDeletedAtIsNull(
-            Long categoryId,
-            Long ownerUserId
-    );
-
 }
