@@ -19,8 +19,6 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -67,7 +65,12 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+                // ✅ IF_REQUIRED permite sesión temporal durante el flujo OAuth2
+                .sessionManagement(sm -> sm
+                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                        .sessionFixation().migrateSession()
+                )
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(unauthorizedHandler)
                         .accessDeniedHandler(accessDeniedHandler())
@@ -85,7 +88,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,   "/api/users/me").authenticated()
                         .requestMatchers(HttpMethod.PUT,   "/api/users/me").authenticated()
                         .requestMatchers(HttpMethod.PATCH, "/api/users/me").authenticated()
-                        // ── ✅ Logs propios — cualquier usuario autenticado ───
+
+                        // ── Logs propios ──────────────────────────────────────
                         .requestMatchers(HttpMethod.GET, "/api/audit/logs/my").authenticated()
 
                         // ── Admin ─────────────────────────────────────────────
@@ -103,6 +107,23 @@ public class SecurityConfig {
                 .oauth2Login(oauth2 -> oauth2
                         .userInfoEndpoint(info -> info.userService(customOAuth2UserService))
                         .successHandler(oAuth2SuccessHandler)
+                        // ✅ Failure handler para ver el error real y no un 500
+                        .failureHandler((request, response, exception) -> {
+                            System.out.println(">>> OAuth2 FALLÓ: " + exception.getMessage());
+                            exception.printStackTrace();
+                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            response.setCharacterEncoding("UTF-8");
+                            new ObjectMapper().writeValue(
+                                    response.getWriter(),
+                                    Map.of(
+                                            "status", 401,
+                                            "error", "OAuth2 authentication failed",
+                                            "message", exception.getMessage(),
+                                            "timestamp", Instant.now().toString()
+                                    )
+                            );
+                        })
                 );
 
         http.addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class);

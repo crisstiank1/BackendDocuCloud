@@ -27,7 +27,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -63,7 +65,8 @@ public class ShareService {
         this.getMinutes = getMinutes;
     }
 
-    // ─── 1. Crear enlace ──────────────────────────────────────────────────────
+    // ─── 1. Crear share ───────────────────────────────────────────────────────
+
     public ShareResponse shareDocument(Long docId, ShareRequest request, Long userId) {
         Document doc = documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
@@ -98,13 +101,42 @@ public class ShareService {
         }
 
         String shareUrl = baseUrl + "/api/documents/shares/" + share.getId() + "/access";
-        log.info("🔗 Share created - user={} doc={} shareId={} permission={}",
-                userId, docId, share.getId(), request.getPermission());
+        log.info("🔗 Share created - user={} doc={} shareId={} permission={} recipient={}",
+                userId, docId, share.getId(), request.getPermission(), request.getRecipientEmail());
 
         return new ShareResponse(shareUrl, share.getId(), share.getExpiresAt());
     }
 
-    // ─── 2. Revocar enlace ────────────────────────────────────────────────────
+    // ─── 2. Shares activos de un documento (para el modal de compartir) ───────
+    // NUEVO: devuelve los shares no revocados de un documento.
+    // Verifica que el solicitante sea el dueño del documento.
+
+    @Transactional(readOnly = true)
+    public List<ShareSummaryResponse> getDocumentShares(Long docId, Long userId) {
+        documentRepository
+                .findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.FORBIDDEN, "No tienes permisos sobre este documento"));
+
+        return shareRepository.findByDocumentIdAndRevokedFalse(docId)
+                .stream()
+                .map(share -> new ShareSummaryResponse(
+                        share.getId(),
+                        share.getDocumentId(),
+                        null,           // fileName no necesario en este contexto
+                        share.getPermission(),
+                        share.getPasswordHash() != null,
+                        share.isRevoked(),
+                        share.getUsedCount(),
+                        share.getRecipientEmail(),
+                        share.getExpiresAt(),
+                        share.getCreatedAt()
+                ))
+                .collect(Collectors.toList());
+    }
+
+    // ─── 3. Revocar share ─────────────────────────────────────────────────────
+
     public void revokeShare(UUID shareId, Long userId) {
         DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -127,7 +159,8 @@ public class ShareService {
         log.info("🚫 Share revoked - user={} shareId={}", userId, shareId);
     }
 
-    // ─── 3. Acceder al enlace ─────────────────────────────────────────────────
+    // ─── 4. Acceder al enlace ─────────────────────────────────────────────────
+
     public ShareAccessResponse accessShare(UUID shareId, String password) {
         DocumentShare share = validateShare(shareId, password);
 
@@ -149,7 +182,8 @@ public class ShareService {
                 share.getPermission() == Permission.WRITE);
     }
 
-    // ─── 4. URL de escritura (solo WRITE) ─────────────────────────────────────
+    // ─── 5. URL de escritura ──────────────────────────────────────────────────
+
     public PresignedUrlResponse getWriteUrl(UUID shareId, String password,
                                             String mimeType, Long userId) {
         DocumentShare share = validateShare(shareId, password);
@@ -168,7 +202,8 @@ public class ShareService {
                 doc.getS3Bucket(), doc.getS3Key(), mimeType, Duration.ofMinutes(getMinutes));
     }
 
-    // ─── 5. Mis shares enviados ───────────────────────────────────────────────
+    // ─── 6. Mis shares enviados ───────────────────────────────────────────────
+
     public Page<ShareSummaryResponse> getMyShares(Long userId, boolean includeRevoked, Pageable pageable) {
         Page<DocumentShare> shares = includeRevoked
                 ? shareRepository.findBySharedByUserIdOrderByCreatedAtDesc(userId, pageable)
@@ -195,7 +230,8 @@ public class ShareService {
         });
     }
 
-    // ─── 6. Compartidos conmigo ← NUEVO ──────────────────────────────────────
+    // ─── 7. Compartidos conmigo ───────────────────────────────────────────────
+
     @Transactional(readOnly = true)
     public Page<SharedWithMeResponse> getSharedWithMe(String email, Pageable pageable) {
         return shareRepository
@@ -213,6 +249,8 @@ public class ShareService {
                     return SharedWithMeResponse.from(share, doc, sharedBy);
                 });
     }
+
+    // ─── 8. Actualizar permiso ────────────────────────────────────────────────
 
     public ShareResponse updateSharePermission(UUID shareId, Permission newPermission, Long userId) {
         DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
@@ -246,6 +284,7 @@ public class ShareService {
     }
 
     // ─── Helper: validar share ────────────────────────────────────────────────
+
     private DocumentShare validateShare(UUID shareId, String password) {
         DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -260,5 +299,35 @@ public class ShareService {
         }
 
         return share;
+    }
+
+    // Destinatario elimina su propio acceso
+    public void removeSharedWithMe(UUID shareId, String email) {
+        DocumentShare share = shareRepository
+                .findByIdAndRecipientEmailAndRevokedFalse(shareId, email)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Share no encontrado"));
+        share.setRevoked(true);
+        shareRepository.save(share);
+        log.info("🗑️ Share removido por destinatario - shareId={} email={}", shareId, email);
+    }
+
+    // URL de escritura para destinatario con permiso WRITE
+    public PresignedUrlResponse getWriteUrlForRecipient(UUID shareId, String email, String mimeType) {
+        DocumentShare share = shareRepository
+                .findByIdAndRecipientEmailAndRevokedFalse(shareId, email)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Share no encontrado"));
+
+        if (share.getPermission() != Permission.WRITE)
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No tienes permiso de escritura");
+
+        Document doc = documentRepository
+                .findByIdAndDeletedAtIsNull(share.getDocumentId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Documento no disponible"));
+
+        return presignService.presignPut(
+                doc.getS3Bucket(), doc.getS3Key(), mimeType, Duration.ofMinutes(getMinutes));
     }
 }

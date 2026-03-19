@@ -11,6 +11,7 @@ import com.docucloud.backend.documents.model.DocumentStatus;
 import com.docucloud.backend.documents.model.DocumentTag;
 import com.docucloud.backend.documents.model.DocumentTagId;
 import com.docucloud.backend.documents.repository.DocumentRepository;
+import com.docucloud.backend.documents.repository.DocumentShareRepository;
 import com.docucloud.backend.documents.repository.DocumentSpecification;
 import com.docucloud.backend.documents.repository.DocumentTagRepository;
 import com.docucloud.backend.favorites.service.FavoriteService;
@@ -37,6 +38,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -48,6 +50,7 @@ public class DocumentService {
     @Autowired private TagRepository tagRepository;
     @Autowired private DocumentTagRepository documentTagRepository;
     @Autowired private ClassifierService classifierService;
+    @Autowired private DocumentShareRepository shareRepository;
 
     private final DocumentRepository repo;
     private final S3KeyService keyService;
@@ -120,9 +123,9 @@ public class DocumentService {
         repo.save(doc);
         logActivity(userId, docId, "UPLOAD_COMPLETED");
 
-        final Long   capturedDocId   = docId;
-        final String capturedName    = doc.getFileName();
-        final Long   capturedUserId  = userId;
+        final Long   capturedDocId  = docId;
+        final String capturedName   = doc.getFileName();
+        final Long   capturedUserId = userId;
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
@@ -146,25 +149,17 @@ public class DocumentService {
         return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
     }
 
-    /**
-     * NUEVO: Lista documentos filtrados por categoría con info de favoritos.
-     * Usado por GET /api/documents?categoryId=X
-     */
     @Transactional(readOnly = true)
     public Page<DocumentResponse> listWithFavoritesByCategory(
             Long userId, Long categoryId, Pageable pageable) {
-        Page<Document> page = repo.findByOwnerUserIdAndCategoryId(
-                userId, categoryId, pageable);
+        Page<Document> page = repo.findByOwnerUserIdAndCategoryId(userId, categoryId, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
         return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
     }
 
     public Page<Document> getRecentDocuments(Long userId, Pageable pageable) {
-        log.info("🔍 Recent query userId={} pageable={}", userId, pageable);
-        Page<Document> page = repo.findByOwnerUserIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
+        return repo.findByOwnerUserIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
                 userId, DocumentStatus.AVAILABLE, pageable);
-        log.info("📊 Recent result: total={} content={}", page.getTotalElements(), page.getContent().size());
-        return page;
     }
 
     @Transactional(readOnly = true)
@@ -179,7 +174,7 @@ public class DocumentService {
         return getRecentDocuments(userId, pageable);
     }
 
-    // ─── BÚSQUEDA AVANZADA RF-21/22 ───────────────────────────────────────────
+    // ─── BÚSQUEDA ─────────────────────────────────────────────────────────────
 
     public Page<Document> search(
             Long userId, String query, String mimeType,
@@ -229,7 +224,6 @@ public class DocumentService {
     public Page<DocumentResponse> searchWithFavorites(
             Long userId, String query, String mimeType,
             String statusParam, String fromDate, String toDate, Pageable pageable) {
-
         Page<Document> page = search(userId, query, mimeType, statusParam, fromDate, toDate, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
         return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
@@ -239,14 +233,14 @@ public class DocumentService {
 
     @Audited(action = "DOC_DOWNLOAD_URL", resourceType = "Document", resourceIdArgIndex = 1)
     public DownloadUrlResponse getDownloadUrl(Long userId, Long docId) {
-        Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
-                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+        Document doc = findDocumentForUser(userId, docId);
 
         if (doc.getStatus() != DocumentStatus.AVAILABLE) {
             throw new IllegalStateException("El documento no está disponible");
         }
 
-        PresignedUrlResponse url = presignService.presignGet(doc.getS3Bucket(), doc.getS3Key(), getDuration);
+        PresignedUrlResponse url = presignService.presignGet(
+                doc.getS3Bucket(), doc.getS3Key(), getDuration);
         logActivity(userId, docId, "DOWNLOAD_REQUESTED");
         return new DownloadUrlResponse(url.url(), url.expiresAt());
     }
@@ -254,10 +248,9 @@ public class DocumentService {
     // ─── PREVIEW ──────────────────────────────────────────────────────────────
 
     public DownloadUrlResponse getPreviewUrl(Long userId, Long docId) {
-        Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
-                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
-
-        PresignedUrlResponse url = presignService.presignGet(doc.getS3Bucket(), doc.getS3Key(), getDuration);
+        Document doc = findDocumentForUser(userId, docId);
+        PresignedUrlResponse url = presignService.presignGet(
+                doc.getS3Bucket(), doc.getS3Key(), getDuration);
         return new DownloadUrlResponse(url.url(), url.expiresAt());
     }
 
@@ -309,6 +302,16 @@ public class DocumentService {
                 .collect(Collectors.toList());
     }
 
+    // ─── STORAGE ──────────────────────────────────────────────────────────────
+
+    public long getStorageUsedByUser(Long userId) {
+        return repo
+                .findByOwnerUserIdAndStatusNotAndDeletedAtIsNull(userId, DocumentStatus.DELETED)
+                .stream()
+                .mapToLong(Document::getSizeBytes)
+                .sum();
+    }
+
     // ─── HELPERS ──────────────────────────────────────────────────────────────
 
     private void logActivity(Long userId, Long docId, String action) {
@@ -322,13 +325,26 @@ public class DocumentService {
         return favoriteService.getFavoriteIdsByDocumentIds(userId, docIds);
     }
 
-    // ─── STORAGE ──────────────────────────────────────────────────────────────
+    private Document findDocumentForUser(Long userId, Long docId) {
+        // 1. Es el dueño
+        Optional<Document> owned = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId);
+        if (owned.isPresent()) return owned.get();
 
-    public long getStorageUsedByUser(Long userId) {
-        return repo
-                .findByOwnerUserIdAndStatusNotAndDeletedAtIsNull(userId, DocumentStatus.DELETED)
+        // 2. Tiene un share activo para este documento
+        String userEmail = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"))
+                .getEmail();
+
+        boolean hasShare = shareRepository
+                .findByDocumentIdAndRevokedFalse(docId)
                 .stream()
-                .mapToLong(Document::getSizeBytes)
-                .sum();
+                .anyMatch(s -> userEmail.equals(s.getRecipientEmail()));
+
+        if (hasShare) {
+            return repo.findByIdAndDeletedAtIsNull(docId)
+                    .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+        }
+
+        throw new IllegalArgumentException("Document not found or access denied");
     }
 }
