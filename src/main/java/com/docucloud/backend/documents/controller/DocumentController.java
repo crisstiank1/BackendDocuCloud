@@ -39,7 +39,6 @@ public class DocumentController {
     private final FolderService folderService;
     private final CategoryService categoryService;
 
-    // Helper centralizado para obtener el ID del usuario
     private Long getUserId(Authentication auth) {
         return ((UserDetailsImpl) auth.getPrincipal()).getId();
     }
@@ -62,13 +61,29 @@ public class DocumentController {
         return ResponseEntity.ok().build();
     }
 
-    // ── LISTADO Y BÚSQUEDA (RF-25 FAVORITOS) ────────────────────────────────
+    // ── LISTADO Y BÚSQUEDA ───────────────────────────────────────────────────
 
+    /**
+     * GET /api/documents
+     * Sin parámetros      → todos los documentos del usuario (paginado)
+     * ?categoryId={id}    → solo los documentos de esa categoría (paginado)
+     *
+     * Ambos casos incluyen el campo isFavorite en la respuesta.
+     */
     @GetMapping
     public ResponseEntity<Page<DocumentResponse>> listDocuments(
+            @RequestParam(required = false) Long categoryId,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             Authentication auth) {
-        return ResponseEntity.ok(documentService.listWithFavorites(getUserId(auth), pageable));
+
+        Long userId = getUserId(auth);
+
+        if (categoryId != null) {
+            return ResponseEntity.ok(
+                    documentService.listWithFavoritesByCategory(userId, categoryId, pageable));
+        }
+
+        return ResponseEntity.ok(documentService.listWithFavorites(userId, pageable));
     }
 
     @GetMapping("/recent")
@@ -89,7 +104,6 @@ public class DocumentController {
             Authentication auth) {
 
         Long userId = getUserId(auth);
-        // De tu versión: Guardar en el historial si hay una consulta
         if (query != null && !query.trim().isEmpty()) {
             searchHistoryService.saveSearch(userId, query);
         }
@@ -138,10 +152,8 @@ public class DocumentController {
             @Valid @RequestBody UpdateSharePermissionRequest request,
             Authentication auth) {
         return ResponseEntity.ok(
-                shareService.updateSharePermission(shareId, request.getPermission(), getUserId(auth))
-        );
+                shareService.updateSharePermission(shareId, request.getPermission(), getUserId(auth)));
     }
-
 
     @GetMapping("/shares/{shareId}/access")
     public ResponseEntity<ShareAccessResponse> accessShare(
@@ -169,7 +181,7 @@ public class DocumentController {
         return ResponseEntity.noContent().build();
     }
 
-    // ── Categorías ───────────────────────────────────────────────────────────────
+    // ── Categorías ──────────────────────────────────────────────────────────
 
     @PatchMapping("/{documentId}/category/{categoryId}")
     public ResponseEntity<Void> assignCategory(
@@ -188,7 +200,6 @@ public class DocumentController {
         return ResponseEntity.noContent().build();
     }
 
-
     // ── CARPETAS Y ELIMINACIÓN ──────────────────────────────────────────────
 
     @PatchMapping("/{docId}/folder/{folderId}")
@@ -197,6 +208,13 @@ public class DocumentController {
             @PathVariable Long folderId,
             Authentication auth) {
         return ResponseEntity.ok(folderService.moveToFolder(getUserId(auth), docId, folderId));
+    }
+
+    @DeleteMapping("/{documentId}/folder")
+    public ResponseEntity<DocumentResponse> removeFromFolder(
+            @PathVariable Long documentId,
+            Authentication auth) {
+        return ResponseEntity.ok(folderService.removeFromFolder(getUserId(auth), documentId));
     }
 
     @DeleteMapping("/{documentId}")
@@ -221,7 +239,7 @@ public class DocumentController {
         return ResponseEntity.ok(documentService.getPreviewUrl(getUserId(auth), documentId));
     }
 
-    // ── ALMACENAMIENTO ──────────────────────────────────────────────
+    // ── ALMACENAMIENTO ──────────────────────────────────────────────────────
 
     @GetMapping("/storage")
     @PreAuthorize("isAuthenticated()")

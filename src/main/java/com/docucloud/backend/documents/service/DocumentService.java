@@ -120,10 +120,9 @@ public class DocumentService {
         repo.save(doc);
         logActivity(userId, docId, "UPLOAD_COMPLETED");
 
-
-        final Long  capturedDocId  = docId;
-        final String capturedName  = doc.getFileName();
-        final Long  capturedUserId = userId;
+        final Long   capturedDocId   = docId;
+        final String capturedName    = doc.getFileName();
+        final Long   capturedUserId  = userId;
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
@@ -143,6 +142,19 @@ public class DocumentService {
     @Transactional(readOnly = true)
     public Page<DocumentResponse> listWithFavorites(Long userId, Pageable pageable) {
         Page<Document> page = repo.findAllByOwnerUserIdAndDeletedAtIsNull(userId, pageable);
+        Set<Long> favIds = getFavoriteIds(userId, page);
+        return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
+    }
+
+    /**
+     * NUEVO: Lista documentos filtrados por categoría con info de favoritos.
+     * Usado por GET /api/documents?categoryId=X
+     */
+    @Transactional(readOnly = true)
+    public Page<DocumentResponse> listWithFavoritesByCategory(
+            Long userId, Long categoryId, Pageable pageable) {
+        Page<Document> page = repo.findByOwnerUserIdAndCategoryId(
+                userId, categoryId, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
         return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
     }
