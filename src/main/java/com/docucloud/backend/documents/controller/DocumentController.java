@@ -5,12 +5,21 @@ import com.docucloud.backend.documents.dto.request.CompleteUploadRequest;
 import com.docucloud.backend.documents.dto.request.InitUploadRequest;
 import com.docucloud.backend.documents.dto.request.ShareRequest;
 import com.docucloud.backend.documents.dto.request.UpdateSharePermissionRequest;
-import com.docucloud.backend.documents.dto.response.*;
+import com.docucloud.backend.documents.dto.response.CategoryResponse;
+import com.docucloud.backend.documents.dto.response.DocumentResponse;
+import com.docucloud.backend.documents.dto.response.DownloadUrlResponse;
+import com.docucloud.backend.documents.dto.response.InitUploadResponse;
+import com.docucloud.backend.documents.dto.response.ShareAccessResponse;
+import com.docucloud.backend.documents.dto.response.ShareResponse;
+import com.docucloud.backend.documents.dto.response.ShareSummaryResponse;
+import com.docucloud.backend.documents.dto.response.SharedWithMeResponse;
 import com.docucloud.backend.documents.service.CategoryService;
 import com.docucloud.backend.documents.service.DocumentService;
 import com.docucloud.backend.documents.service.FolderService;
 import com.docucloud.backend.documents.service.ShareService;
+import com.docucloud.backend.documents.dto.response.FolderResponse;
 import com.docucloud.backend.search.service.SearchHistoryService;
+import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
 import com.docucloud.backend.tags.dto.response.TagResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -39,7 +48,6 @@ public class DocumentController {
     private final FolderService folderService;
     private final CategoryService categoryService;
 
-    // Helper centralizado para obtener el ID del usuario
     private Long getUserId(Authentication auth) {
         return ((UserDetailsImpl) auth.getPrincipal()).getId();
     }
@@ -62,13 +70,22 @@ public class DocumentController {
         return ResponseEntity.ok().build();
     }
 
-    // ── LISTADO Y BÚSQUEDA (RF-25 FAVORITOS) ────────────────────────────────
+    // ── LISTADO Y BÚSQUEDA ───────────────────────────────────────────────────
 
     @GetMapping
     public ResponseEntity<Page<DocumentResponse>> listDocuments(
+            @RequestParam(required = false) Long categoryId,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             Authentication auth) {
-        return ResponseEntity.ok(documentService.listWithFavorites(getUserId(auth), pageable));
+
+        Long userId = getUserId(auth);
+
+        if (categoryId != null) {
+            return ResponseEntity.ok(
+                    documentService.listWithFavoritesByCategory(userId, categoryId, pageable));
+        }
+
+        return ResponseEntity.ok(documentService.listWithFavorites(userId, pageable));
     }
 
     @GetMapping("/recent")
@@ -89,7 +106,6 @@ public class DocumentController {
             Authentication auth) {
 
         Long userId = getUserId(auth);
-        // De tu versión: Guardar en el historial si hay una consulta
         if (query != null && !query.trim().isEmpty()) {
             searchHistoryService.saveSearch(userId, query);
         }
@@ -108,6 +124,13 @@ public class DocumentController {
         return ResponseEntity.ok(shareService.shareDocument(docId, request, getUserId(auth)));
     }
 
+    @GetMapping("/{docId}/shares")
+    public ResponseEntity<List<ShareSummaryResponse>> getDocumentShares(
+            @PathVariable Long docId,
+            Authentication auth) {
+        return ResponseEntity.ok(shareService.getDocumentShares(docId, getUserId(auth)));
+    }
+
     @GetMapping("/shares/mine")
     public ResponseEntity<Page<ShareSummaryResponse>> getMyShares(
             @RequestParam(defaultValue = "false") boolean includeRevoked,
@@ -118,7 +141,7 @@ public class DocumentController {
 
     @GetMapping("/shares/received")
     public ResponseEntity<Page<SharedWithMeResponse>> getSharedWithMe(
-            @PageableDefault(size = 20) Pageable pageable,
+            @PageableDefault(size = 50) Pageable pageable,
             Authentication auth) {
         UserDetailsImpl user = (UserDetailsImpl) auth.getPrincipal();
         return ResponseEntity.ok(shareService.getSharedWithMe(user.getEmail(), pageable));
@@ -138,16 +161,35 @@ public class DocumentController {
             @Valid @RequestBody UpdateSharePermissionRequest request,
             Authentication auth) {
         return ResponseEntity.ok(
-                shareService.updateSharePermission(shareId, request.getPermission(), getUserId(auth))
-        );
+                shareService.updateSharePermission(shareId, request.getPermission(), getUserId(auth)));
     }
-
 
     @GetMapping("/shares/{shareId}/access")
     public ResponseEntity<ShareAccessResponse> accessShare(
             @PathVariable UUID shareId,
             @RequestParam(required = false) String password) {
         return ResponseEntity.ok(shareService.accessShare(shareId, password));
+    }
+
+    // ── SHARES RECIBIDOS ────────────────────────────────────────────────────
+
+    @DeleteMapping("/shares/received/{shareId}")
+    public ResponseEntity<Void> removeFromSharedWithMe(
+            @PathVariable UUID shareId,
+            Authentication auth) {
+        UserDetailsImpl user = (UserDetailsImpl) auth.getPrincipal();
+        shareService.removeSharedWithMe(shareId, user.getEmail());
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/shares/received/{shareId}/write-url")
+    public ResponseEntity<PresignedUrlResponse> getWriteUrlForRecipient(
+            @PathVariable UUID shareId,
+            @RequestParam String mimeType,
+            Authentication auth) {
+        UserDetailsImpl user = (UserDetailsImpl) auth.getPrincipal();
+        return ResponseEntity.ok(
+                shareService.getWriteUrlForRecipient(shareId, user.getEmail(), mimeType));
     }
 
     // ── TAGS ────────────────────────────────────────────────────────────────
@@ -158,18 +200,24 @@ public class DocumentController {
     }
 
     @PutMapping("/{id}/tags/{tagId}")
-    public ResponseEntity<Void> addTag(@PathVariable Long id, @PathVariable Long tagId, Authentication auth) {
+    public ResponseEntity<Void> addTag(
+            @PathVariable Long id,
+            @PathVariable Long tagId,
+            Authentication auth) {
         documentService.addTagToDocument(id, tagId, getUserId(auth));
         return ResponseEntity.ok().build();
     }
 
     @DeleteMapping("/{id}/tags/{tagId}")
-    public ResponseEntity<Void> removeTag(@PathVariable Long id, @PathVariable Long tagId, Authentication auth) {
+    public ResponseEntity<Void> removeTag(
+            @PathVariable Long id,
+            @PathVariable Long tagId,
+            Authentication auth) {
         documentService.removeTagFromDocument(id, tagId, getUserId(auth));
         return ResponseEntity.noContent().build();
     }
 
-    // ── Categorías ───────────────────────────────────────────────────────────────
+    // ── CATEGORÍAS ──────────────────────────────────────────────────────────
 
     @PatchMapping("/{documentId}/category/{categoryId}")
     public ResponseEntity<Void> assignCategory(
@@ -188,7 +236,6 @@ public class DocumentController {
         return ResponseEntity.noContent().build();
     }
 
-
     // ── CARPETAS Y ELIMINACIÓN ──────────────────────────────────────────────
 
     @PatchMapping("/{docId}/folder/{folderId}")
@@ -197,6 +244,13 @@ public class DocumentController {
             @PathVariable Long folderId,
             Authentication auth) {
         return ResponseEntity.ok(folderService.moveToFolder(getUserId(auth), docId, folderId));
+    }
+
+    @DeleteMapping("/{documentId}/folder")
+    public ResponseEntity<DocumentResponse> removeFromFolder(
+            @PathVariable Long documentId,
+            Authentication auth) {
+        return ResponseEntity.ok(folderService.removeFromFolder(getUserId(auth), documentId));
     }
 
     @DeleteMapping("/{documentId}")
@@ -221,11 +275,12 @@ public class DocumentController {
         return ResponseEntity.ok(documentService.getPreviewUrl(getUserId(auth), documentId));
     }
 
-    // ── ALMACENAMIENTO ──────────────────────────────────────────────
+    // ── ALMACENAMIENTO ──────────────────────────────────────────────────────
 
     @GetMapping("/storage")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<?> getStorageUsed(@AuthenticationPrincipal UserDetailsImpl userDetails) {
+    public ResponseEntity<?> getStorageUsed(
+            @AuthenticationPrincipal UserDetailsImpl userDetails) {
         long usedBytes = documentService.getStorageUsedByUser(userDetails.getId());
         return ResponseEntity.ok(Map.of("usedBytes", usedBytes));
     }
