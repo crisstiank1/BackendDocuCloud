@@ -63,13 +63,16 @@ public class ClassifierService {
             Category category = categoryRepo
                     .findByOwnerUserIdAndName(userId, categoryName)
                     .orElseGet(() -> {
-                        log.info("🎨 Creando categoría AI nueva: user={} name={}", userId, categoryName);
-                        Category newCat = new Category();
-                        newCat.setOwnerUserId(userId);
-                        newCat.setName(categoryName);
-                        newCat.setColor("#6b7280");
-                        return categoryRepo.save(newCat);
+                        log.info("⚠️ Categoría '{}' no encontrada, usando 'Otros'", categoryName);
+                        return categoryRepo
+                                .findByOwnerUserIdAndName(userId, "Otros")
+                                .orElse(null);
                     });
+
+            if (category == null) {
+                log.warn("⚠️ No se encontró categoría 'Otros' para user={}, saltando", userId);
+                return;
+            }
 
             // 5. Crea o actualiza la clasificación
             DocumentCategory dc = doc.getClassification();

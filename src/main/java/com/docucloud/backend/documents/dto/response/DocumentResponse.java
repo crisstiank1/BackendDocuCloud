@@ -5,6 +5,8 @@ import com.docucloud.backend.documents.model.DocumentStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
+import java.util.stream.Collectors;
 
 public record DocumentResponse(
         Long id,
@@ -17,6 +19,7 @@ public record DocumentResponse(
         Long categoryId,
         boolean isAutomaticallyAssigned,
         BigDecimal confidenceScore,
+        List<String> tagNames,
         Instant createdAt,
         Instant updatedAt,
         boolean isFavorite
@@ -39,6 +42,10 @@ public record DocumentResponse(
             confidence = d.getClassification().getConfidenceScore();
         }
 
+        List<String> tags = d.getTags() != null
+                ? d.getTags().stream().map(t -> t.getName()).collect(Collectors.toList())
+                : List.of();
+
         return new DocumentResponse(
                 d.getId(),
                 d.getFileName(),
@@ -50,6 +57,7 @@ public record DocumentResponse(
                 catId,
                 auto,
                 confidence,
+                tags,
                 d.getCreatedAt(),
                 d.getUpdatedAt(),
                 isFavorite
