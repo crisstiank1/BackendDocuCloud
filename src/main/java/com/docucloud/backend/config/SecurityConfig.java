@@ -3,6 +3,7 @@ package com.docucloud.backend.config;
 import com.docucloud.backend.config.security.jwt.AuthEntryPointJwt;
 import com.docucloud.backend.config.security.jwt.AuthTokenFilter;
 import com.docucloud.backend.config.security.jwt.InactivityFilter;
+import com.docucloud.backend.config.security.oauth.CustomAuthorizationRequestResolver;
 import com.docucloud.backend.config.security.oauth.CustomOAuth2UserService;
 import com.docucloud.backend.config.security.oauth.InMemoryOAuth2AuthorizationRequestRepository;
 import com.docucloud.backend.config.security.oauth.OAuth2SuccessHandler;
@@ -42,6 +43,7 @@ public class SecurityConfig {
     private final OAuth2SuccessHandler oAuth2SuccessHandler;
     private final InactivityFilter inactivityFilter;
     private final InMemoryOAuth2AuthorizationRequestRepository inMemoryAuthRequestRepo;
+    private final CustomAuthorizationRequestResolver customAuthorizationRequestResolver; // ✅
 
     @Value("${app.cors.allowed-origins:http://localhost:5173}")
     private List<String> allowedOrigins;
@@ -54,7 +56,8 @@ public class SecurityConfig {
             AuthEntryPointJwt unauthorizedHandler,
             CustomOAuth2UserService customOAuth2UserService,
             OAuth2SuccessHandler oAuth2SuccessHandler,
-            InMemoryOAuth2AuthorizationRequestRepository inMemoryAuthRequestRepo) {
+            InMemoryOAuth2AuthorizationRequestRepository inMemoryAuthRequestRepo,
+            CustomAuthorizationRequestResolver customAuthorizationRequestResolver) { // ✅
         this.authTokenFilter = authTokenFilter;
         this.inactivityFilter = inactivityFilter;
         this.userDetailsService = userDetailsService;
@@ -62,6 +65,7 @@ public class SecurityConfig {
         this.customOAuth2UserService = customOAuth2UserService;
         this.oAuth2SuccessHandler = oAuth2SuccessHandler;
         this.inMemoryAuthRequestRepo = inMemoryAuthRequestRepo;
+        this.customAuthorizationRequestResolver = customAuthorizationRequestResolver; // ✅
     }
 
     @Bean
@@ -100,6 +104,7 @@ public class SecurityConfig {
                         .authorizationEndpoint(auth -> auth
                                 .baseUri("/oauth2/authorization")
                                 .authorizationRequestRepository(inMemoryAuthRequestRepo)
+                                .authorizationRequestResolver(customAuthorizationRequestResolver) // ✅
                         )
                         .redirectionEndpoint(redirect -> redirect
                                 .baseUri("/login/oauth2/code/*")

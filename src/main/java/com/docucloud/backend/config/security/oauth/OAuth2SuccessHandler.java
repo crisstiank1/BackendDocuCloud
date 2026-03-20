@@ -1,10 +1,13 @@
 package com.docucloud.backend.config.security.oauth;
 
+import com.docucloud.backend.audit.service.AuditService;
 import com.docucloud.backend.auth.service.RefreshTokenService;
 import com.docucloud.backend.auth.security.UserDetailsImpl;
 import com.docucloud.backend.config.security.jwt.JwtUtils;
 import com.docucloud.backend.users.model.User;
 import com.docucloud.backend.users.repository.UserRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +29,8 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     private final RefreshTokenService refreshTokenService;
     private final UserRepository userRepository;
     private final UserOAuth2RegistrationService registrationService;
+    private final AuditService auditService;
+    private final ObjectMapper objectMapper;
 
     @Value("${app.frontend.url:http://localhost:5173}")
     private String frontendUrl;
@@ -49,6 +54,19 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         User user = userRepository.findByEmailWithRoles(email)
                 .orElseThrow(() -> new RuntimeException(
                         "Error crítico: usuario no encontrado tras crearlo: " + email));
+
+       // ✅ Registrar auditoría del login con Google
+        ObjectNode details = objectMapper.createObjectNode();
+        details.put("email", email);
+        details.put("provider", "GOOGLE");
+        auditService.logBusiness(
+                user.getId(),
+                "AUTH_LOGIN_GOOGLE",
+                "Auth",
+                user.getId(),
+                true,
+                details
+        );
 
         System.out.println(">>> Usuario guardado: " + user.getId());
 
