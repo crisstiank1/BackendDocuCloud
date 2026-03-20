@@ -4,6 +4,7 @@ import com.docucloud.backend.config.security.jwt.AuthEntryPointJwt;
 import com.docucloud.backend.config.security.jwt.AuthTokenFilter;
 import com.docucloud.backend.config.security.jwt.InactivityFilter;
 import com.docucloud.backend.config.security.oauth.CustomOAuth2UserService;
+import com.docucloud.backend.config.security.oauth.InMemoryOAuth2AuthorizationRequestRepository;
 import com.docucloud.backend.config.security.oauth.OAuth2SuccessHandler;
 import com.docucloud.backend.auth.security.UserDetailsServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,6 +41,7 @@ public class SecurityConfig {
     private final CustomOAuth2UserService customOAuth2UserService;
     private final OAuth2SuccessHandler oAuth2SuccessHandler;
     private final InactivityFilter inactivityFilter;
+    private final InMemoryOAuth2AuthorizationRequestRepository inMemoryAuthRequestRepo;
 
     @Value("${app.cors.allowed-origins:http://localhost:5173}")
     private List<String> allowedOrigins;
@@ -51,13 +53,15 @@ public class SecurityConfig {
             UserDetailsServiceImpl userDetailsService,
             AuthEntryPointJwt unauthorizedHandler,
             CustomOAuth2UserService customOAuth2UserService,
-            OAuth2SuccessHandler oAuth2SuccessHandler) {
+            OAuth2SuccessHandler oAuth2SuccessHandler,
+            InMemoryOAuth2AuthorizationRequestRepository inMemoryAuthRequestRepo) {
         this.authTokenFilter = authTokenFilter;
         this.inactivityFilter = inactivityFilter;
         this.userDetailsService = userDetailsService;
         this.unauthorizedHandler = unauthorizedHandler;
         this.customOAuth2UserService = customOAuth2UserService;
         this.oAuth2SuccessHandler = oAuth2SuccessHandler;
+        this.inMemoryAuthRequestRepo = inMemoryAuthRequestRepo;
     }
 
     @Bean
@@ -65,49 +69,43 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-
-                // ✅ IF_REQUIRED permite sesión temporal durante el flujo OAuth2
                 .sessionManagement(sm -> sm
-                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
-                        .sessionFixation().migrateSession()
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(unauthorizedHandler)
                         .accessDeniedHandler(accessDeniedHandler())
                 )
                 .authorizeHttpRequests(auth -> auth
-
-                        // ── Públicos ──────────────────────────────────────────
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/health/**").permitAll()
                         .requestMatchers("/oauth2/**").permitAll()
                         .requestMatchers("/login/oauth2/**").permitAll()
                         .requestMatchers("/api/dev/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/documents/shares/*/access").permitAll()
-
                         .requestMatchers(HttpMethod.GET,   "/api/users/me").authenticated()
                         .requestMatchers(HttpMethod.PUT,   "/api/users/me").authenticated()
                         .requestMatchers(HttpMethod.PATCH, "/api/users/me").authenticated()
-
-                        // ── Logs propios ──────────────────────────────────────
                         .requestMatchers(HttpMethod.GET, "/api/audit/logs/my").authenticated()
-
-                        // ── Admin ─────────────────────────────────────────────
                         .requestMatchers(HttpMethod.GET,    "/api/users").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET,    "/api/users/{id}").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT,    "/api/users/{id}/role").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT,    "/api/users/{id}/status").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/users/{id}").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT,    "/api/users/{id}/limits").hasRole("ADMIN")
-
-                        // ── Todo lo demás requiere autenticación ──────────────
                         .anyRequest().authenticated()
                 )
                 .userDetailsService(userDetailsService)
                 .oauth2Login(oauth2 -> oauth2
+                        .authorizationEndpoint(auth -> auth
+                                .baseUri("/oauth2/authorization")
+                                .authorizationRequestRepository(inMemoryAuthRequestRepo)
+                        )
+                        .redirectionEndpoint(redirect -> redirect
+                                .baseUri("/login/oauth2/code/*")
+                        )
                         .userInfoEndpoint(info -> info.userService(customOAuth2UserService))
                         .successHandler(oAuth2SuccessHandler)
-                        // ✅ Failure handler para ver el error real y no un 500
                         .failureHandler((request, response, exception) -> {
                             System.out.println(">>> OAuth2 FALLÓ: " + exception.getMessage());
                             exception.printStackTrace();
@@ -138,7 +136,6 @@ public class SecurityConfig {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.setCharacterEncoding("UTF-8");
-
             var body = Map.of(
                     "status",    403,
                     "error",     "Forbidden",
@@ -146,7 +143,6 @@ public class SecurityConfig {
                     "path",      request.getRequestURI(),
                     "timestamp", Instant.now().toString()
             );
-
             new ObjectMapper().writeValue(response.getWriter(), body);
         };
     }
@@ -158,7 +154,6 @@ public class SecurityConfig {
         config.addAllowedHeader("*");
         config.addAllowedMethod("*");
         config.setAllowCredentials(true);
-
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;

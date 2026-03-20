@@ -4,11 +4,13 @@ import com.docucloud.backend.auth.service.RefreshTokenService;
 import com.docucloud.backend.auth.security.UserDetailsImpl;
 import com.docucloud.backend.config.security.jwt.JwtUtils;
 import com.docucloud.backend.users.model.User;
+import com.docucloud.backend.users.repository.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
@@ -22,6 +24,7 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
     private final JwtUtils jwtUtils;
     private final RefreshTokenService refreshTokenService;
+    private final UserRepository userRepository;
     private final UserOAuth2RegistrationService registrationService;
 
     @Value("${app.frontend.url:http://localhost:5173}")
@@ -40,9 +43,12 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         String picture = oAuth2User.getAttribute("picture");
 
         System.out.println(">>> Email: " + email);
+        registrationService.saveOrUpdateUser(email, name, picture);
 
-        // ✅ Guardar/actualizar usuario aquí directamente
-        User user = registrationService.saveOrUpdateUser(email, name, picture);
+        // ✅ findByEmailWithRoles carga los roles en la misma query — evita LazyInitializationException
+        User user = userRepository.findByEmailWithRoles(email)
+                .orElseThrow(() -> new RuntimeException(
+                        "Error crítico: usuario no encontrado tras crearlo: " + email));
 
         System.out.println(">>> Usuario guardado: " + user.getId());
 
