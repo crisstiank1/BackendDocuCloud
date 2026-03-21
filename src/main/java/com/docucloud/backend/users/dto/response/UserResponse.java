@@ -14,12 +14,12 @@ public record UserResponse(
         String photoUrl,
         Provider provider,
         boolean hasPassword,
-        boolean enabled,          // ← nuevo
+        boolean enabled,
         Set<String> roles,
         Instant createdAt,
-        Integer maxFolders,       // ← nuevo (correcto aquí, no en el cuerpo)
-        Integer maxTags,          // ← nuevo
-        Integer maxFavorites      // ← nuevo
+        Integer maxFolders,
+        Integer maxTags,
+        Integer maxFavorites
 ) {
     public static UserResponse from(User u) {
         return new UserResponse(
@@ -28,15 +28,15 @@ public record UserResponse(
                 u.getName(),
                 u.getPhotoUrl(),
                 u.getProvider(),
-                u.getProvider() == Provider.LOCAL,
-                u.isEnabled(),                          // ← nuevo
+                u.getProvider() == Provider.LOCAL || u.isHasLocalPassword(),
+                u.isEnabled(),
                 u.getRoles().stream()
                         .map(r -> r.getRole().name())
                         .collect(Collectors.toSet()),
                 u.getCreatedAt(),
-                u.getMaxFolders(),                      // ← nuevo
-                u.getMaxTags(),                         // ← nuevo
-                u.getMaxFavorites()                     // ← nuevo
+                u.getMaxFolders(),
+                u.getMaxTags(),
+                u.getMaxFavorites()
         );
     }
 }

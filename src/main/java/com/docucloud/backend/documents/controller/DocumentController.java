@@ -13,6 +13,7 @@ import com.docucloud.backend.documents.dto.response.ShareAccessResponse;
 import com.docucloud.backend.documents.dto.response.ShareResponse;
 import com.docucloud.backend.documents.dto.response.ShareSummaryResponse;
 import com.docucloud.backend.documents.dto.response.SharedWithMeResponse;
+import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.service.CategoryService;
 import com.docucloud.backend.documents.service.DocumentService;
 import com.docucloud.backend.documents.service.FolderService;
@@ -27,6 +28,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -283,5 +286,32 @@ public class DocumentController {
             @AuthenticationPrincipal UserDetailsImpl userDetails) {
         long usedBytes = documentService.getStorageUsedByUser(userDetails.getId());
         return ResponseEntity.ok(Map.of("usedBytes", usedBytes));
+    }
+
+    // ── STREAM PARA GOOGLE DOCS VIEWER ──────────────────────────────────────
+
+    /**
+     * Sirve el archivo directamente desde S3.
+     * Google Docs Viewer llama a esta URL para renderizar Office.
+     * NO requiere autenticación — está en SecurityConfig como permitAll().
+     *
+     * ✅ CORREGIDO: @PathVariable Long (no String)
+     * ✅ CORREGIDO: getFileName() (no getOriginalName() — no existe en Document)
+     */
+    @GetMapping("/{id}/stream")
+    public ResponseEntity<byte[]> streamDocument(@PathVariable Long id) {
+        try {
+            Document document = documentService.getDocumentByIdPublic(id);
+            byte[] fileBytes = documentService.downloadFileBytes(document);
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            "inline; filename=\"" + document.getFileName() + "\"")
+                    .contentType(MediaType.parseMediaType(document.getMimeType()))
+                    .body(fileBytes);
+
+        } catch (Exception e) {
+            return ResponseEntity.notFound().build();
+        }
     }
 }

@@ -2,6 +2,7 @@ package com.docucloud.backend.auth.dto.request;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public class RegisterRequest {
@@ -12,6 +13,10 @@ public class RegisterRequest {
 
     @NotBlank
     @Size(min = 8, max = 120)
+    @Pattern(
+            regexp = "^(?=.*[A-Z])(?=.*\\d).+$",
+            message = "La contraseña debe tener al menos una mayúscula y un número"
+    )
     private String password;
 
     @Size(max = 100)

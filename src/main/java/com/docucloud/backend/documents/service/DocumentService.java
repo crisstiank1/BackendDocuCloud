@@ -32,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.io.InputStream;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -254,6 +255,27 @@ public class DocumentService {
         return new DownloadUrlResponse(url.url(), url.expiresAt());
     }
 
+    // ✅ CORREGIDO: usa "repo" y "presignService" y "bucket" — nombres reales de esta clase
+    public Document getDocumentByIdPublic(Long id) {
+        return repo.findById(id)
+                .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
+    }
+
+    // ✅ CORREGIDO: usa "presignService" y "bucket" — nombres reales de esta clase
+    public byte[] downloadFileBytes(Document document) {
+        PresignedUrlResponse presigned = presignService.presignGet(
+                bucket,
+                document.getS3Key(),
+                Duration.ofMinutes(10)
+        );
+        try (InputStream is = new java.net.URI(presigned.url())
+                .toURL().openStream()) {
+            return is.readAllBytes();
+        } catch (Exception e) {
+            throw new RuntimeException("Error descargando archivo de S3", e);
+        }
+    }
+
     // ─── DELETE ───────────────────────────────────────────────────────────────
 
     @Audited(action = "DOC_DELETE", resourceType = "Document", resourceIdArgIndex = 1)
@@ -326,11 +348,9 @@ public class DocumentService {
     }
 
     private Document findDocumentForUser(Long userId, Long docId) {
-        // 1. Es el dueño
         Optional<Document> owned = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId);
         if (owned.isPresent()) return owned.get();
 
-        // 2. Tiene un share activo para este documento
         String userEmail = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"))
                 .getEmail();

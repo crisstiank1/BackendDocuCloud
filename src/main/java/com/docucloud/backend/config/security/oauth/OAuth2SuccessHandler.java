@@ -55,7 +55,18 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
                 .orElseThrow(() -> new RuntimeException(
                         "Error crítico: usuario no encontrado tras crearlo: " + email));
 
-       // ✅ Registrar auditoría del login con Google
+        // Verificar si el usuario está bloqueado
+        if (!user.isEnabled()) {
+            String redirectUrl = UriComponentsBuilder
+                    .fromUriString(frontendUrl + "/auth/login")
+                    .queryParam("error", "Tu cuenta ha sido bloqueada. Contacta al administrador.")
+                    .build()
+                    .toUriString();
+            response.sendRedirect(redirectUrl);
+            return;
+        }
+
+        // Registrar auditoría del login con Google
         ObjectNode details = objectMapper.createObjectNode();
         details.put("email", email);
         details.put("provider", "GOOGLE");
