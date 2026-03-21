@@ -12,7 +12,7 @@ import java.util.Set;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder(toBuilder = true)  // ← Útil para updates inmutables
+@Builder(toBuilder = true)
 public class User {
 
     @Id
@@ -24,6 +24,9 @@ public class User {
 
     @Column(nullable = false, length = 120)
     private String password;
+
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean hasLocalPassword = false;
 
     @Column(nullable = false)
     private boolean enabled = true;

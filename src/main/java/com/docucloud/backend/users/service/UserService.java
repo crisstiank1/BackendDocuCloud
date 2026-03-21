@@ -120,9 +120,13 @@ public class UserService {
     public void changePassword(Long userId, ChangePasswordRequest request) {
         User user = findById(userId);
 
-        if (user.getProvider() == Provider.GOOGLE) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Usuarios Google no pueden cambiar contraseña local");
+        // Usuario Google sin contraseña local — crear contraseña nueva directamente
+        if (user.getProvider() == Provider.GOOGLE && !user.isHasLocalPassword()) {
+            user.setPassword(passwordEncoder.encode(request.newPassword()));
+            user.setHasLocalPassword(true);
+            userRepository.save(user);
+            emailService.sendPasswordChanged(user.getEmail());
+            return;
         }
 
         if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
@@ -132,8 +136,6 @@ public class UserService {
 
         user.setPassword(passwordEncoder.encode(request.newPassword()));
         userRepository.save(user);
-
-        // ✅ Notificar al usuario que su contraseña fue cambiada
         emailService.sendPasswordChanged(user.getEmail());
     }
 

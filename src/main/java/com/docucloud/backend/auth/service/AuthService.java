@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.transaction.Transactional;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -100,6 +101,7 @@ public class AuthService {
     }
 
     // ─── LOGIN ────────────────────────────────────────────────────────────────
+// ─── LOGIN ────────────────────────────────────────────────────────────────
     @Transactional
     public JwtResponse login(LoginRequest request, String ip) {
         String email   = request.getEmail().toLowerCase().trim();
@@ -120,6 +122,15 @@ public class AuthService {
                     new UsernamePasswordAuthenticationToken(email, request.getPassword()));
             bruteForceProtectionService.onSuccess(userKey);
             bruteForceProtectionService.onSuccess(ipKey);
+
+        } catch (DisabledException ex) {
+            // Usuario bloqueado — no contar como intento fallido de fuerza bruta
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("email", email);
+            details.put("reason", "ACCOUNT_DISABLED");
+            auditService.logHttp(null, "AUTH_LOGIN_BLOCKED_USER", "Auth", null, false, ip, null, details);
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Tu cuenta ha sido bloqueada. Contacta al administrador.");
 
         } catch (AuthenticationException ex) {
             bruteForceProtectionService.onFail(userKey);
