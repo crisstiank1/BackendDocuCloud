@@ -49,10 +49,10 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
     Page<Document> findByOwnerUserIdAndCreatedAtBetweenAndDeletedAtIsNullOrderByCreatedAtDesc(
             Long ownerUserId, Instant from, Instant to, Pageable pageable);
 
-    // Contar documentos por usuario (útil para dashboard)
+    // Contar documentos por usuario
     long countByOwnerUserIdAndDeletedAtIsNull(Long ownerUserId);
 
-    // Documentos por status (útil para analytics)
+    // Documentos por status
     long countByOwnerUserIdAndStatusAndDeletedAtIsNull(Long ownerUserId, DocumentStatus status);
 
     List<Document> findByOwnerUserIdAndStatusNotAndDeletedAtIsNull(
@@ -60,9 +60,7 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
             DocumentStatus status
     );
 
-    // ── NUEVO: Documentos por categoría (para GET /api/documents?categoryId=X) ──
-    // Usa @Query porque categoryId no es campo directo en Document:
-    // la relación es Document → DocumentCategory (classification) → Category.id
+    // Documentos por categoría
     @Query("""
             SELECT d FROM Document d
             WHERE d.ownerUserId = :ownerUserId
@@ -72,5 +70,19 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
     Page<Document> findByOwnerUserIdAndCategoryId(
             @Param("ownerUserId") Long ownerUserId,
             @Param("categoryId") Long categoryId,
+            Pageable pageable);
+
+    // ✅ NUEVO: documentos sin categoría asignada
+    // classification es la relación con DocumentCategory — si es null
+    // significa que el documento no tiene categoría asignada
+    @Query("""
+            SELECT d FROM Document d
+            WHERE d.ownerUserId = :ownerUserId
+              AND d.deletedAt IS NULL
+              AND d.status != 'DELETED'
+              AND d.classification IS NULL
+            """)
+    Page<Document> findUnclassifiedByOwnerUserId(
+            @Param("ownerUserId") Long ownerUserId,
             Pageable pageable);
 }

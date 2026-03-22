@@ -108,7 +108,8 @@ public class DocumentService {
         doc.setStatus(DocumentStatus.PENDING_UPLOAD);
         doc = repo.save(doc);
 
-        PresignedUrlResponse url = presignService.presignPut(bucket, s3Key, req.mimeType(), putDuration);
+        PresignedUrlResponse url = presignService.presignPut(
+                bucket, s3Key, req.mimeType(), putDuration);
 
         log.info("✅ Init upload user={} doc={} size={}MB",
                 userId, doc.getId(), req.sizeBytes() / 1024 / 1024);
@@ -133,8 +134,10 @@ public class DocumentService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                log.info("🧠 Triggering async classification post-commit - docId={}", capturedDocId);
-                classifierService.classifyAndAssignAsync(capturedDocId, capturedName, capturedUserId);
+                log.info("🧠 Triggering async classification post-commit - docId={}",
+                        capturedDocId);
+                classifierService.classifyAndAssignAsync(
+                        capturedDocId, capturedName, capturedUserId);
             }
         });
     }
@@ -156,6 +159,14 @@ public class DocumentService {
     public Page<DocumentResponse> listWithFavoritesByCategory(
             Long userId, Long categoryId, Pageable pageable) {
         Page<Document> page = repo.findByOwnerUserIdAndCategoryId(userId, categoryId, pageable);
+        Set<Long> favIds = getFavoriteIds(userId, page);
+        return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
+    }
+
+    // ✅ NUEVO: documentos sin categoría asignada — filtra directo en BD
+    @Transactional(readOnly = true)
+    public Page<DocumentResponse> listUnclassified(Long userId, Pageable pageable) {
+        Page<Document> page = repo.findUnclassifiedByOwnerUserId(userId, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
         return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
     }
@@ -219,7 +230,8 @@ public class DocumentService {
         }
 
         return repo.findAll(
-                DocumentSpecification.search(userId, nameQuery, mimeQuery, status, fromInstant, toInstant),
+                DocumentSpecification.search(
+                        userId, nameQuery, mimeQuery, status, fromInstant, toInstant),
                 pageable);
     }
 
@@ -227,7 +239,8 @@ public class DocumentService {
     public Page<DocumentResponse> searchWithFavorites(
             Long userId, String query, String mimeType,
             String statusParam, String fromDate, String toDate, Pageable pageable) {
-        Page<Document> page = search(userId, query, mimeType, statusParam, fromDate, toDate, pageable);
+        Page<Document> page = search(
+                userId, query, mimeType, statusParam, fromDate, toDate, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
         return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
     }
@@ -257,13 +270,11 @@ public class DocumentService {
         return new DownloadUrlResponse(url.url(), url.expiresAt());
     }
 
-    // ✅ CORREGIDO: usa "repo" y "presignService" y "bucket" — nombres reales de esta clase
     public Document getDocumentByIdPublic(Long id) {
         return repo.findById(id)
                 .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
     }
 
-    // ✅ CORREGIDO: usa "presignService" y "bucket" — nombres reales de esta clase
     public byte[] downloadFileBytes(Document document) {
         PresignedUrlResponse presigned = presignService.presignGet(
                 bucket,
@@ -296,7 +307,8 @@ public class DocumentService {
     @Transactional
     public void addTagToDocument(Long documentId, Long tagId, Long userId) {
         Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(documentId, userId)
-                .orElseThrow(() -> new IllegalArgumentException("Document not found or access denied"));
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Document not found or access denied"));
 
         Tag tag = tagRepository.findById(tagId)
                 .orElseThrow(() -> new IllegalArgumentException("Tag not found"));
@@ -307,7 +319,6 @@ public class DocumentService {
             return;
         }
 
-        // ← Límite de 3 etiquetas por documento
         long currentTags = documentTagRepository.findByDocumentId(documentId).size();
         if (currentTags >= 3) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,

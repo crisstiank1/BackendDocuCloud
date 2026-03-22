@@ -78,10 +78,19 @@ public class DocumentController {
     @GetMapping
     public ResponseEntity<Page<DocumentResponse>> listDocuments(
             @RequestParam(required = false) Long categoryId,
-            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
+            // ✅ NUEVO: parámetro para filtrar documentos sin categoría
+            @RequestParam(required = false, defaultValue = "false") boolean unclassified,
+            @PageableDefault(size = 20, sort = "createdAt",
+                    direction = Sort.Direction.DESC) Pageable pageable,
             Authentication auth) {
 
         Long userId = getUserId(auth);
+
+        // ✅ NUEVO: vista sin clasificar — prioridad sobre categoryId
+        if (unclassified) {
+            return ResponseEntity.ok(
+                    documentService.listUnclassified(userId, pageable));
+        }
 
         if (categoryId != null) {
             return ResponseEntity.ok(
@@ -93,9 +102,11 @@ public class DocumentController {
 
     @GetMapping("/recent")
     public ResponseEntity<Page<DocumentResponse>> recentDocuments(
-            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
+            @PageableDefault(size = 10, sort = "createdAt",
+                    direction = Sort.Direction.DESC) Pageable pageable,
             Authentication auth) {
-        return ResponseEntity.ok(documentService.getRecentDocumentsWithFavorites(getUserId(auth), pageable));
+        return ResponseEntity.ok(
+                documentService.getRecentDocumentsWithFavorites(getUserId(auth), pageable));
     }
 
     @GetMapping("/search")
@@ -105,7 +116,8 @@ public class DocumentController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String fromDate,
             @RequestParam(required = false) String toDate,
-            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
+            @PageableDefault(size = 20, sort = "createdAt",
+                    direction = Sort.Direction.DESC) Pageable pageable,
             Authentication auth) {
 
         Long userId = getUserId(auth);
@@ -139,7 +151,8 @@ public class DocumentController {
             @RequestParam(defaultValue = "false") boolean includeRevoked,
             @PageableDefault(size = 20) Pageable pageable,
             Authentication auth) {
-        return ResponseEntity.ok(shareService.getMyShares(getUserId(auth), includeRevoked, pageable));
+        return ResponseEntity.ok(
+                shareService.getMyShares(getUserId(auth), includeRevoked, pageable));
     }
 
     @GetMapping("/shares/received")
@@ -164,7 +177,8 @@ public class DocumentController {
             @Valid @RequestBody UpdateSharePermissionRequest request,
             Authentication auth) {
         return ResponseEntity.ok(
-                shareService.updateSharePermission(shareId, request.getPermission(), getUserId(auth)));
+                shareService.updateSharePermission(
+                        shareId, request.getPermission(), getUserId(auth)));
     }
 
     @GetMapping("/shares/{shareId}/access")
@@ -198,7 +212,8 @@ public class DocumentController {
     // ── TAGS ────────────────────────────────────────────────────────────────
 
     @GetMapping("/{id}/tags")
-    public List<TagResponse> getDocumentTags(@PathVariable Long id, Authentication auth) {
+    public List<TagResponse> getDocumentTags(
+            @PathVariable Long id, Authentication auth) {
         return documentService.getDocumentTags(id, getUserId(auth));
     }
 
@@ -246,14 +261,16 @@ public class DocumentController {
             @PathVariable Long docId,
             @PathVariable Long folderId,
             Authentication auth) {
-        return ResponseEntity.ok(folderService.moveToFolder(getUserId(auth), docId, folderId));
+        return ResponseEntity.ok(
+                folderService.moveToFolder(getUserId(auth), docId, folderId));
     }
 
     @DeleteMapping("/{documentId}/folder")
     public ResponseEntity<DocumentResponse> removeFromFolder(
             @PathVariable Long documentId,
             Authentication auth) {
-        return ResponseEntity.ok(folderService.removeFromFolder(getUserId(auth), documentId));
+        return ResponseEntity.ok(
+                folderService.removeFromFolder(getUserId(auth), documentId));
     }
 
     @DeleteMapping("/{documentId}")
@@ -268,14 +285,16 @@ public class DocumentController {
     public ResponseEntity<DownloadUrlResponse> getDownloadUrl(
             @PathVariable Long documentId,
             Authentication auth) {
-        return ResponseEntity.ok(documentService.getDownloadUrl(getUserId(auth), documentId));
+        return ResponseEntity.ok(
+                documentService.getDownloadUrl(getUserId(auth), documentId));
     }
 
     @GetMapping("/{documentId}/preview")
     public ResponseEntity<DownloadUrlResponse> getPreviewUrl(
             @PathVariable Long documentId,
             Authentication auth) {
-        return ResponseEntity.ok(documentService.getPreviewUrl(getUserId(auth), documentId));
+        return ResponseEntity.ok(
+                documentService.getPreviewUrl(getUserId(auth), documentId));
     }
 
     // ── ALMACENAMIENTO ──────────────────────────────────────────────────────
@@ -290,14 +309,6 @@ public class DocumentController {
 
     // ── STREAM PARA GOOGLE DOCS VIEWER ──────────────────────────────────────
 
-    /**
-     * Sirve el archivo directamente desde S3.
-     * Google Docs Viewer llama a esta URL para renderizar Office.
-     * NO requiere autenticación — está en SecurityConfig como permitAll().
-     *
-     * ✅ CORREGIDO: @PathVariable Long (no String)
-     * ✅ CORREGIDO: getFileName() (no getOriginalName() — no existe en Document)
-     */
     @GetMapping("/{id}/stream")
     public ResponseEntity<byte[]> streamDocument(@PathVariable Long id) {
         try {
