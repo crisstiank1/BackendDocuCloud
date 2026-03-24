@@ -72,9 +72,7 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
             @Param("categoryId") Long categoryId,
             Pageable pageable);
 
-    // ✅ NUEVO: documentos sin categoría asignada
-    // classification es la relación con DocumentCategory — si es null
-    // significa que el documento no tiene categoría asignada
+    // Documentos sin categoría asignada
     @Query("""
             SELECT d FROM Document d
             WHERE d.ownerUserId = :ownerUserId
@@ -85,4 +83,36 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
     Page<Document> findUnclassifiedByOwnerUserId(
             @Param("ownerUserId") Long ownerUserId,
             Pageable pageable);
+
+    // Documentos que el usuario ha compartido con al menos un share activo
+    @Query(
+            value = """
+            SELECT DISTINCT d FROM Document d
+            WHERE d.ownerUserId = :userId
+              AND d.deletedAt IS NULL
+              AND d.status != 'DELETED'
+              AND EXISTS (
+                  SELECT 1 FROM DocumentShare s
+                  WHERE s.documentId = d.id
+                    AND s.sharedByUserId = :userId
+                    AND s.revoked = false
+              )
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT d) FROM Document d
+            WHERE d.ownerUserId = :userId
+              AND d.deletedAt IS NULL
+              AND d.status != 'DELETED'
+              AND EXISTS (
+                  SELECT 1 FROM DocumentShare s
+                  WHERE s.documentId = d.id
+                    AND s.sharedByUserId = :userId
+                    AND s.revoked = false
+              )
+            """
+    )
+    Page<Document> findSharedByMe(
+            @Param("userId") Long userId,
+            Pageable pageable
+    );
 }

@@ -32,5 +32,10 @@ public interface DocumentShareRepository extends JpaRepository<DocumentShare, UU
             String recipientEmail, Pageable pageable);
 
     Optional<DocumentShare> findByIdAndRecipientEmailAndRevokedFalse(UUID id, String recipientEmail);
+
+    List<DocumentShare> findByDocumentIdAndSharedByUserIdAndRevokedFalse(
+            Long documentId,
+            Long sharedByUserId
+    );
 }
 

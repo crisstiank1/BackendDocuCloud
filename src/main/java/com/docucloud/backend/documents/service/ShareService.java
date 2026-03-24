@@ -2,10 +2,7 @@ package com.docucloud.backend.documents.service;
 
 import com.docucloud.backend.common.service.EmailService;
 import com.docucloud.backend.documents.dto.request.ShareRequest;
-import com.docucloud.backend.documents.dto.response.ShareAccessResponse;
-import com.docucloud.backend.documents.dto.response.ShareResponse;
-import com.docucloud.backend.documents.dto.response.ShareSummaryResponse;
-import com.docucloud.backend.documents.dto.response.SharedWithMeResponse;
+import com.docucloud.backend.documents.dto.response.*;
 import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.model.DocumentShare;
 import com.docucloud.backend.documents.model.Permission;
@@ -28,6 +25,8 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -108,8 +107,6 @@ public class ShareService {
     }
 
     // ─── 2. Shares activos de un documento (para el modal de compartir) ───────
-    // NUEVO: devuelve los shares no revocados de un documento.
-    // Verifica que el solicitante sea el dueño del documento.
 
     @Transactional(readOnly = true)
     public List<ShareSummaryResponse> getDocumentShares(Long docId, Long userId) {
@@ -123,7 +120,7 @@ public class ShareService {
                 .map(share -> new ShareSummaryResponse(
                         share.getId(),
                         share.getDocumentId(),
-                        null,           // fileName no necesario en este contexto
+                        null,
                         share.getPermission(),
                         share.getPasswordHash() != null,
                         share.isRevoked(),
@@ -204,33 +201,76 @@ public class ShareService {
 
     // ─── 6. Mis shares enviados ───────────────────────────────────────────────
 
+    @Transactional(readOnly = true)
     public Page<ShareSummaryResponse> getMyShares(Long userId, boolean includeRevoked, Pageable pageable) {
         Page<DocumentShare> shares = includeRevoked
                 ? shareRepository.findBySharedByUserIdOrderByCreatedAtDesc(userId, pageable)
                 : shareRepository.findBySharedByUserIdAndRevokedFalseOrderByCreatedAtDesc(userId, pageable);
 
-        return shares.map(share -> {
-            String fileName = documentRepository
-                    .findByIdAndDeletedAtIsNull(share.getDocumentId())
-                    .map(Document::getFileName)
-                    .orElse("Documento eliminado");
+        // 1. Recolectar todos los documentId de la página actual
+        Set<Long> docIds = shares.stream()
+                .map(DocumentShare::getDocumentId)
+                .collect(Collectors.toSet());
 
-            return new ShareSummaryResponse(
-                    share.getId(),
-                    share.getDocumentId(),
-                    fileName,
-                    share.getPermission(),
-                    share.getPasswordHash() != null,
-                    share.isRevoked(),
-                    share.getUsedCount(),
-                    share.getRecipientEmail(),
-                    share.getExpiresAt(),
-                    share.getCreatedAt()
-            );
+        // 2. Una sola query para todos los documentos de esta página
+        Map<Long, String> fileNames = documentRepository.findAllById(docIds)
+                .stream()
+                .collect(Collectors.toMap(Document::getId, Document::getFileName));
+
+        // 3. Mapear sin queries adicionales
+        return shares.map(share -> new ShareSummaryResponse(
+                share.getId(),
+                share.getDocumentId(),
+                fileNames.getOrDefault(share.getDocumentId(), "Documento eliminado"),
+                share.getPermission(),
+                share.getPasswordHash() != null,
+                share.isRevoked(),
+                share.getUsedCount(),
+                share.getRecipientEmail(),
+                share.getExpiresAt(),
+                share.getCreatedAt()
+        ));
+    }
+
+    // ─── 7. Compartidos por mí (agrupado por documento) ──────────────────────
+
+    @Transactional(readOnly = true)
+    public Page<SharedByMeResponse> getSharedByMe(Long userId, Pageable pageable) {
+
+        // 1. Documentos que este usuario ha compartido (paginados desde BD)
+        Page<Document> docs = documentRepository.findSharedByMe(userId, pageable);
+
+        // 2. Por cada documento, traer sus shares activos
+        //    Máximo 20 queries controladas por página
+        return docs.map(doc -> {
+
+            List<SharedByMeResponse.ShareSummary> summaries = shareRepository
+                    .findByDocumentIdAndSharedByUserIdAndRevokedFalse(doc.getId(), userId)
+                    .stream()
+                    .map(s -> SharedByMeResponse.ShareSummary.builder()
+                            .shareId(s.getId().toString())
+                            .recipientEmail(s.getRecipientEmail())
+                            .permission(s.getPermission().name())
+                            .hasPassword(s.getPasswordHash() != null)
+                            .usedCount(s.getUsedCount())
+                            .expiresAt(s.getExpiresAt() != null
+                                    ? s.getExpiresAt().toString() : null)
+                            .createdAt(s.getCreatedAt().toString())
+                            .build())
+                    .collect(Collectors.toList());
+
+            return SharedByMeResponse.builder()
+                    .documentId(doc.getId())
+                    .fileName(doc.getFileName())
+                    .mimeType(doc.getMimeType())
+                    .sizeBytes(doc.getSizeBytes())
+                    .createdAt(doc.getCreatedAt().toString())
+                    .shares(summaries)
+                    .build();
         });
     }
 
-    // ─── 7. Compartidos conmigo ───────────────────────────────────────────────
+    // ─── 8. Compartidos conmigo ───────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public Page<SharedWithMeResponse> getSharedWithMe(String email, Pageable pageable) {
@@ -250,7 +290,7 @@ public class ShareService {
                 });
     }
 
-    // ─── 8. Actualizar permiso ────────────────────────────────────────────────
+    // ─── 9. Actualizar permiso ────────────────────────────────────────────────
 
     public ShareResponse updateSharePermission(UUID shareId, Permission newPermission, Long userId) {
         DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
@@ -301,7 +341,8 @@ public class ShareService {
         return share;
     }
 
-    // Destinatario elimina su propio acceso
+    // ─── Destinatario elimina su propio acceso ────────────────────────────────
+
     public void removeSharedWithMe(UUID shareId, String email) {
         DocumentShare share = shareRepository
                 .findByIdAndRecipientEmailAndRevokedFalse(shareId, email)
@@ -312,7 +353,8 @@ public class ShareService {
         log.info("🗑️ Share removido por destinatario - shareId={} email={}", shareId, email);
     }
 
-    // URL de escritura para destinatario con permiso WRITE
+    // ─── URL de escritura para destinatario con permiso WRITE ─────────────────
+
     public PresignedUrlResponse getWriteUrlForRecipient(UUID shareId, String email, String mimeType) {
         DocumentShare share = shareRepository
                 .findByIdAndRecipientEmailAndRevokedFalse(shareId, email)
