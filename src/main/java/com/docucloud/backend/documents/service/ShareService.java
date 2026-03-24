@@ -207,17 +207,14 @@ public class ShareService {
                 ? shareRepository.findBySharedByUserIdOrderByCreatedAtDesc(userId, pageable)
                 : shareRepository.findBySharedByUserIdAndRevokedFalseOrderByCreatedAtDesc(userId, pageable);
 
-        // 1. Recolectar todos los documentId de la página actual
         Set<Long> docIds = shares.stream()
                 .map(DocumentShare::getDocumentId)
                 .collect(Collectors.toSet());
 
-        // 2. Una sola query para todos los documentos de esta página
         Map<Long, String> fileNames = documentRepository.findAllById(docIds)
                 .stream()
                 .collect(Collectors.toMap(Document::getId, Document::getFileName));
 
-        // 3. Mapear sin queries adicionales
         return shares.map(share -> new ShareSummaryResponse(
                 share.getId(),
                 share.getDocumentId(),
@@ -237,11 +234,8 @@ public class ShareService {
     @Transactional(readOnly = true)
     public Page<SharedByMeResponse> getSharedByMe(Long userId, Pageable pageable) {
 
-        // 1. Documentos que este usuario ha compartido (paginados desde BD)
         Page<Document> docs = documentRepository.findSharedByMe(userId, pageable);
 
-        // 2. Por cada documento, traer sus shares activos
-        //    Máximo 20 queries controladas por página
         return docs.map(doc -> {
 
             List<SharedByMeResponse.ShareSummary> summaries = shareRepository
@@ -270,12 +264,13 @@ public class ShareService {
         });
     }
 
-    // ─── 8. Compartidos conmigo ───────────────────────────────────────────────
+    // ─── 8. Compartidos conmigo ✅ CORREGIDO ──────────────────────────────────
 
     @Transactional(readOnly = true)
     public Page<SharedWithMeResponse> getSharedWithMe(String email, Pageable pageable) {
+        // ✅ Query que excluye documentos eliminados (deletedAt IS NULL)
         return shareRepository
-                .findByRecipientEmailAndRevokedFalseOrderByCreatedAtDesc(email, pageable)
+                .findActiveSharesWithAvailableDocuments(email, pageable)
                 .map(share -> {
                     Document doc = documentRepository
                             .findByIdAndDeletedAtIsNull(share.getDocumentId())
