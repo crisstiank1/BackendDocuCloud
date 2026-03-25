@@ -233,7 +233,6 @@ public class ShareService {
 
     @Transactional(readOnly = true)
     public Page<SharedByMeResponse> getSharedByMe(Long userId, Pageable pageable) {
-
         Page<Document> docs = documentRepository.findSharedByMe(userId, pageable);
 
         return docs.map(doc -> {
@@ -247,11 +246,13 @@ public class ShareService {
                             .permission(s.getPermission().name())
                             .hasPassword(s.getPasswordHash() != null)
                             .usedCount(s.getUsedCount())
-                            .expiresAt(s.getExpiresAt() != null
-                                    ? s.getExpiresAt().toString() : null)
+                            .expiresAt(s.getExpiresAt() != null ? s.getExpiresAt().toString() : null)
                             .createdAt(s.getCreatedAt().toString())
                             .build())
                     .collect(Collectors.toList());
+
+            // Generamos la URL presignada solo si es imagen
+            String thumbnailUrl = generateThumbnailUrl(doc);
 
             return SharedByMeResponse.builder()
                     .documentId(doc.getId())
@@ -259,16 +260,17 @@ public class ShareService {
                     .mimeType(doc.getMimeType())
                     .sizeBytes(doc.getSizeBytes())
                     .createdAt(doc.getCreatedAt().toString())
+                    .thumbnailUrl(thumbnailUrl)
                     .shares(summaries)
                     .build();
         });
     }
 
-    // ─── 8. Compartidos conmigo ✅ CORREGIDO ──────────────────────────────────
+
+    // ─── 8. Compartidos conmigo  ──────────────────────────────────
 
     @Transactional(readOnly = true)
     public Page<SharedWithMeResponse> getSharedWithMe(String email, Pageable pageable) {
-        // ✅ Query que excluye documentos eliminados (deletedAt IS NULL)
         return shareRepository
                 .findActiveSharesWithAvailableDocuments(email, pageable)
                 .map(share -> {
@@ -281,7 +283,10 @@ public class ShareService {
                             .orElseThrow(() -> new ResponseStatusException(
                                     HttpStatus.NOT_FOUND, "Usuario no encontrado"));
 
-                    return SharedWithMeResponse.from(share, doc, sharedBy);
+                    // Generamos la URL presignada solo si es imagen
+                    String thumbnailUrl = generateThumbnailUrl(doc);
+
+                    return SharedWithMeResponse.from(share, doc, sharedBy, generateThumbnailUrl(doc));
                 });
     }
 
@@ -366,5 +371,21 @@ public class ShareService {
 
         return presignService.presignPut(
                 doc.getS3Bucket(), doc.getS3Key(), mimeType, Duration.ofMinutes(getMinutes));
+    }
+
+    // ─── Helper: URL presignada para miniaturas de imágenes ───────────────────────
+
+    private String generateThumbnailUrl(Document doc) {
+        if (doc.getMimeType() == null || !doc.getMimeType().startsWith("image/")) {
+            return null;
+        }
+        try {
+            return presignService
+                    .presignGet(doc.getS3Bucket(), doc.getS3Key(), Duration.ofMinutes(getMinutes))
+                    .url();
+        } catch (Exception ex) {
+            log.warn("⚠️ No se pudo generar thumbnailUrl para doc={}: {}", doc.getId(), ex.getMessage());
+            return null;
+        }
     }
 }

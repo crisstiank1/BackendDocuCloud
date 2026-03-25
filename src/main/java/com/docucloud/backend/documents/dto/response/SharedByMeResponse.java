@@ -18,6 +18,7 @@ public class SharedByMeResponse {
     private String mimeType;
     private Long   sizeBytes;
     private String createdAt;
+    private String thumbnailUrl; // null si no es imagen
 
     private List<ShareSummary> shares;
 

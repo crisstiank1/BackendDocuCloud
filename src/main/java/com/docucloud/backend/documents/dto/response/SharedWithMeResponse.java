@@ -8,20 +8,23 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record SharedWithMeResponse(
-        UUID shareId,
-        Long documentId,
-        String fileName,
-        String mimeType,
-        Long sizeBytes,
-        String sharedByName,
-        String sharedByEmail,
-        String permission,
+        UUID    shareId,
+        Long    documentId,
+        String  fileName,
+        String  mimeType,
+        Long    sizeBytes,
+        String  sharedByName,
+        String  sharedByEmail,
+        String  permission,
         boolean isExpired,
         Instant expiresAt,
         Instant sharedAt,
-        int usedCount
+        int     usedCount,
+        String  thumbnailUrl
 ) {
-    public static SharedWithMeResponse from(DocumentShare share, Document doc, User sharedBy) {
+    // Un solo factory method — thumbnailUrl puede ser null
+    public static SharedWithMeResponse from(
+            DocumentShare share, Document doc, User sharedBy, String thumbnailUrl) {
         return new SharedWithMeResponse(
                 share.getId(),
                 doc.getId(),
@@ -34,7 +37,8 @@ public record SharedWithMeResponse(
                 share.getExpiresAt() != null && share.getExpiresAt().isBefore(Instant.now()),
                 share.getExpiresAt(),
                 share.getCreatedAt(),
-                share.getUsedCount()
+                share.getUsedCount(),
+                thumbnailUrl
         );
     }
 }
