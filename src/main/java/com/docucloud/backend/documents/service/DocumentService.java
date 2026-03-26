@@ -22,7 +22,6 @@ import com.docucloud.backend.tags.dto.response.TagResponse;
 import com.docucloud.backend.tags.model.Tag;
 import com.docucloud.backend.tags.repository.TagRepository;
 import com.docucloud.backend.users.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -48,10 +47,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @Transactional
-@RequiredArgsConstructor                          // ✅ elimina todos los @Autowired
+// ✅ @RequiredArgsConstructor eliminado — conflicto con constructor manual
 public class DocumentService {
 
-    // ✅ Todo final — inyección por constructor vía @RequiredArgsConstructor
     private final DocumentRepository repo;
     private final DocumentTagRepository documentTagRepository;
     private final DocumentShareRepository shareRepository;
@@ -61,13 +59,11 @@ public class DocumentService {
     private final S3PresignService presignService;
     private final UserRepository userRepository;
     private final FavoriteService favoriteService;
-
     private final String bucket;
     private final Duration putDuration;
     private final Duration getDuration;
     private final long maxSizeMb;
 
-    // ✅ Constructor con @Value — necesario para campos con @Value + @RequiredArgsConstructor
     public DocumentService(
             DocumentRepository repo,
             DocumentTagRepository documentTagRepository,
@@ -83,26 +79,27 @@ public class DocumentService {
             @Value("${docucloud.aws.s3.presignGetMinutes:10}") long getMinutes,
             @Value("${app.document.max-size-mb:50}") long maxSizeMb
     ) {
-        this.repo                 = repo;
+        this.repo                  = repo;
         this.documentTagRepository = documentTagRepository;
-        this.shareRepository      = shareRepository;
-        this.tagRepository        = tagRepository;
-        this.classifierService    = classifierService;
-        this.keyService           = keyService;
-        this.presignService       = presignService;
-        this.userRepository       = userRepository;
-        this.favoriteService      = favoriteService;
-        this.bucket               = bucket;
-        this.putDuration          = Duration.ofMinutes(putMinutes);
-        this.getDuration          = Duration.ofMinutes(getMinutes);
-        this.maxSizeMb            = maxSizeMb;
+        this.shareRepository       = shareRepository;
+        this.tagRepository         = tagRepository;
+        this.classifierService     = classifierService;
+        this.keyService            = keyService;
+        this.presignService        = presignService;
+        this.userRepository        = userRepository;
+        this.favoriteService       = favoriteService;
+        this.bucket                = bucket;
+        this.putDuration           = Duration.ofMinutes(putMinutes);
+        this.getDuration           = Duration.ofMinutes(getMinutes);
+        this.maxSizeMb             = maxSizeMb;
     }
 
     // ─── UPLOAD ───────────────────────────────────────────────────────────────
 
     public InitUploadResponse initUpload(Long userId, InitUploadRequest req) {
         if (req.sizeBytes() > maxSizeMb * 1024 * 1024) {
-            throw new IllegalArgumentException("Archivo excede " + maxSizeMb + "MB");
+            throw new ResponseStatusException(                    // ✅ HTTP 400 tipado
+                    HttpStatus.BAD_REQUEST, "Archivo excede " + maxSizeMb + "MB");
         }
 
         String s3Key = keyService.buildDocumentKey(userId, req.fileName());
@@ -179,7 +176,7 @@ public class DocumentService {
     }
 
     @Transactional(readOnly = true)
-    public Page<Document> getRecentDocuments(Long userId, Pageable pageable) {  // ✅ readOnly
+    public Page<Document> getRecentDocuments(Long userId, Pageable pageable) {
         return repo.findByOwnerUserIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
                 userId, DocumentStatus.AVAILABLE, pageable);
     }
@@ -199,7 +196,7 @@ public class DocumentService {
 
     // ─── BÚSQUEDA ─────────────────────────────────────────────────────────────
 
-    @Transactional(readOnly = true)                                               // ✅ añadido
+    @Transactional(readOnly = true)
     public Page<Document> search(
             Long userId, String query, String mimeType,
             String statusParam, String fromDate, String toDate, Pageable pageable) {
@@ -212,7 +209,7 @@ public class DocumentService {
             try {
                 status = DocumentStatus.valueOf(statusParam.trim().toUpperCase());
             } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException(
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "status inválido: '" + statusParam + "'. Valores permitidos: "
                                 + Arrays.toString(DocumentStatus.values()));
             }
@@ -224,7 +221,8 @@ public class DocumentService {
                 fromInstant = LocalDate.parse(fromDate.trim())
                         .atStartOfDay(ZoneOffset.UTC).toInstant();
             } catch (Exception e) {
-                throw new IllegalArgumentException("fromDate inválido: '" + fromDate + "'");
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "fromDate inválido: '" + fromDate + "'");
             }
         }
 
@@ -235,7 +233,8 @@ public class DocumentService {
                         .atTime(23, 59, 59, 999_000_000)
                         .atOffset(ZoneOffset.UTC).toInstant();
             } catch (Exception e) {
-                throw new IllegalArgumentException("toDate inválido: '" + toDate + "'");
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "toDate inválido: '" + toDate + "'");
             }
         }
 
@@ -282,7 +281,7 @@ public class DocumentService {
 
     public Document getDocumentByIdPublic(Long id) {
         return repo.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(   // ✅ 404 en vez de 500
+                .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Documento no encontrado"));
     }
 
@@ -292,7 +291,7 @@ public class DocumentService {
         try (InputStream is = new java.net.URI(presigned.url()).toURL().openStream()) {
             return is.readAllBytes();
         } catch (Exception e) {
-            throw new ResponseStatusException(                    // ✅ 500 tipado
+            throw new ResponseStatusException(
                     HttpStatus.INTERNAL_SERVER_ERROR, "Error descargando archivo de S3");
         }
     }
@@ -360,7 +359,7 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public long getStorageUsedByUser(Long userId) {
-        return repo.sumStorageByUser(userId);                     // ✅ query de agregación en BD
+        return repo.sumStorageByUser(userId);
     }
 
     // ─── HELPERS ──────────────────────────────────────────────────────────────

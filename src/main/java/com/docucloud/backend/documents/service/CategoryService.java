@@ -9,18 +9,20 @@ import com.docucloud.backend.documents.model.DocumentCategory;
 import com.docucloud.backend.documents.repository.CategoryRepository;
 import com.docucloud.backend.documents.repository.DocumentCategoryRepository;
 import com.docucloud.backend.documents.repository.DocumentRepository;
+import com.docucloud.backend.users.model.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import com.docucloud.backend.users.model.User;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
-@Service
 @Slf4j
+@Service
 @RequiredArgsConstructor
 public class CategoryService {
 
@@ -28,38 +30,47 @@ public class CategoryService {
     private final DocumentRepository documentRepository;
     private final DocumentCategoryRepository documentCategoryRepository;
 
+    // ─── Categorías por defecto ───────────────────────────────────────────────
+
     @Transactional
     public void createDefaultCategories(User user) {
-        List<Object[]> defaults = List.of(
-                new Object[]{"Facturas",   "#f59e0b"},
-                new Object[]{"Contratos",  "#6366f1"},
-                new Object[]{"Informes",   "#3b82f6"},
-                new Object[]{"Personal",   "#10b981"},
-                new Object[]{"Legal",      "#ef4444"},
-                new Object[]{"Proyectos",  "#f97316"},
-                new Object[]{"Otros",      "#8b5cf6"}
+        List<Category> defaults = List.of(
+                buildCategory(user.getId(), "Facturas",  "#f59e0b"),
+                buildCategory(user.getId(), "Contratos", "#6366f1"),
+                buildCategory(user.getId(), "Informes",  "#3b82f6"),
+                buildCategory(user.getId(), "Personal",  "#10b981"),
+                buildCategory(user.getId(), "Legal",     "#ef4444"),
+                buildCategory(user.getId(), "Proyectos", "#f97316"),
+                buildCategory(user.getId(), "Otros",     "#8b5cf6")
         );
+        categoryRepository.saveAll(defaults);   // ✅ 1 sola query en vez de 7
+    }
 
-        for (Object[] cat : defaults) {
-            Category category = new Category();
-            category.setOwnerUserId(user.getId());
-            category.setName((String) cat[0]);
-            category.setColor((String) cat[1]);
-            categoryRepository.save(category);
-        }
+    private Category buildCategory(Long userId, String name, String color) {
+        Category c = new Category();
+        c.setOwnerUserId(userId);
+        c.setName(name);
+        c.setColor(color);
+        return c;
     }
 
     // ─── Listar ───────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public List<CategoryResponse> listCategories(Long userId) {
-        return categoryRepository
-                .findByOwnerUserIdOrderByNameAsc(userId)
+        List<Category> categories = categoryRepository.findByOwnerUserIdOrderByNameAsc(userId);
+
+        // ✅ Una sola query para todos los conteos — evita N+1
+        Map<Long, Long> countMap = categoryRepository
+                .countDocumentsGroupedByCategory(userId)
                 .stream()
-                .map(c -> CategoryResponse.from(
-                        c,
-                        categoryRepository.countDocumentsByCategoryId(userId, c.getId())
-                ))
+                .collect(Collectors.toMap(
+                        row -> (Long) row[0],
+                        row -> (Long) row[1]
+                ));
+
+        return categories.stream()
+                .map(c -> CategoryResponse.from(c, countMap.getOrDefault(c.getId(), 0L)))
                 .toList();
     }
 
@@ -71,8 +82,7 @@ public class CategoryService {
         if (categoryRepository.existsByOwnerUserIdAndName(userId, request.name())) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Ya existe una categoría con el nombre '" + request.name() + "'"
-            );
+                    "Ya existe una categoría con el nombre '" + request.name() + "'");
         }
 
         Category category = new Category();
@@ -82,7 +92,7 @@ public class CategoryService {
         category = categoryRepository.save(category);
 
         log.info("🏷️ Category created - user={} name={}", userId, request.name());
-        return CategoryResponse.from(category, 0);
+        return CategoryResponse.from(category, 0L);
     }
 
     // ─── Eliminar ─────────────────────────────────────────────────────────────
@@ -95,9 +105,8 @@ public class CategoryService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Categoría no encontrada"));
 
-        documentCategoryRepository
-                .findByCategory_IdAndDocument_OwnerUserIdAndDocument_DeletedAtIsNull(categoryId, userId)
-                .forEach(documentCategoryRepository::delete);
+        // ✅ Una sola query DELETE en vez de N deletes individuales
+        documentCategoryRepository.deleteByCategory_Id(categoryId);
 
         categoryRepository.delete(category);
         log.info("🗑️ Category deleted - user={} categoryId={}", userId, categoryId);
@@ -140,7 +149,6 @@ public class CategoryService {
                         HttpStatus.NOT_FOUND, "Documento no encontrado"));
 
         documentCategoryRepository.deleteByDocument_Id(documentId);
-
         log.info("📂 Category removed - user={} doc={}", userId, documentId);
     }
 
@@ -148,7 +156,8 @@ public class CategoryService {
 
     @Audited(action = "UPDATE_CATEGORY", resourceType = "Category", resourceIdArgIndex = 1)
     @Transactional
-    public CategoryResponse updateCategory(Long userId, Long categoryId, CreateCategoryRequest request) {
+    public CategoryResponse updateCategory(Long userId, Long categoryId,
+                                           CreateCategoryRequest request) {
         Category category = categoryRepository
                 .findByIdAndOwnerUserId(categoryId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -159,7 +168,9 @@ public class CategoryService {
         categoryRepository.save(category);
 
         log.info("✏️ Category updated - user={} categoryId={}", userId, categoryId);
-        return CategoryResponse.from(category,
-                categoryRepository.countDocumentsByCategoryId(userId, categoryId));
+
+        // Reutiliza el conteo individual solo aquí — es 1 sola categoría
+        long count = categoryRepository.countDocumentsByCategoryId(userId, categoryId);
+        return CategoryResponse.from(category, count);
     }
 }

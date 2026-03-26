@@ -27,4 +27,15 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
     long countDocumentsByCategoryId(
             @Param("userId") Long userId,
             @Param("categoryId") Long categoryId);
+
+
+    // CategoryRepository.java
+    @Query("""
+        SELECT dc.category.id, COUNT(dc)
+        FROM DocumentCategory dc
+        WHERE dc.category.ownerUserId = :userId
+          AND dc.document.deletedAt IS NULL
+        GROUP BY dc.category.id
+        """)
+    List<Object[]> countDocumentsGroupedByCategory(@Param("userId") Long userId);
 }

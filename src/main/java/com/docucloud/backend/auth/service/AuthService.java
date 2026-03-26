@@ -17,7 +17,6 @@ import com.docucloud.backend.users.repository.UserRepository;
 import com.docucloud.backend.users.repository.UserRoleRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import jakarta.transaction.Transactional;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.DisabledException;
@@ -25,6 +24,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;   // ✅ import corregido
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -44,7 +44,7 @@ public class AuthService {
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
     private final CategoryService categoryService;
-    private final EmailService emailService;              // ← NUEVO
+    private final EmailService emailService;
 
     public AuthService(UserRepository userRepository,
                        UserRoleRepository userRoleRepository,
@@ -56,25 +56,27 @@ public class AuthService {
                        AuditService auditService,
                        ObjectMapper objectMapper,
                        CategoryService categoryService,
-                       EmailService emailService) {       // ← NUEVO
-        this.userRepository = userRepository;
-        this.userRoleRepository = userRoleRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.authenticationManager = authenticationManager;
-        this.jwtUtils = jwtUtils;
+                       EmailService emailService) {
+        this.userRepository              = userRepository;
+        this.userRoleRepository          = userRoleRepository;
+        this.passwordEncoder             = passwordEncoder;
+        this.authenticationManager       = authenticationManager;
+        this.jwtUtils                    = jwtUtils;
         this.bruteForceProtectionService = bruteForceProtectionService;
-        this.refreshTokenService = refreshTokenService;
-        this.auditService = auditService;
-        this.objectMapper = objectMapper;
-        this.categoryService = categoryService;
-        this.emailService = emailService;                 // ← NUEVO
+        this.refreshTokenService         = refreshTokenService;
+        this.auditService                = auditService;
+        this.objectMapper                = objectMapper;
+        this.categoryService             = categoryService;
+        this.emailService                = emailService;
     }
 
     // ─── REGISTER ─────────────────────────────────────────────────────────────
+
     @Transactional
     public void register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new IllegalArgumentException("El correo ya está registrado");
+            throw new ResponseStatusException(                     // ✅ HTTP 409 en vez de IllegalArgumentException
+                    HttpStatus.CONFLICT, "El correo ya está registrado");
         }
 
         User user = new User();
@@ -90,7 +92,6 @@ public class AuthService {
         userRoleRepository.save(ur);
 
         categoryService.createDefaultCategories(user);
-
         emailService.sendWelcome(user.getEmail(), user.getName());
 
         ObjectNode details = objectMapper.createObjectNode();
@@ -99,13 +100,15 @@ public class AuthService {
     }
 
     // ─── LOGIN ────────────────────────────────────────────────────────────────
+
     @Transactional
     public JwtResponse login(LoginRequest request, String ip) {
         String email   = request.getEmail().toLowerCase().trim();
         String userKey = "user:" + email;
         String ipKey   = "ip:" + ip;
 
-        if (bruteForceProtectionService.isLocked(userKey) || bruteForceProtectionService.isLocked(ipKey)) {
+        if (bruteForceProtectionService.isLocked(userKey) ||
+                bruteForceProtectionService.isLocked(ipKey)) {
             ObjectNode details = objectMapper.createObjectNode();
             details.put("email", email);
             details.put("reason", "BRUTE_FORCE_LOCKED");
@@ -158,10 +161,12 @@ public class AuthService {
     }
 
     // ─── LOGIN GOOGLE ─────────────────────────────────────────────────────────
+
     @Transactional
     public JwtResponse loginWithGoogle(User user) {
         User managed = userRepository.findByEmailWithRoles(user.getEmail())
-                .orElseThrow(() -> new IllegalArgumentException("Usuario no existe"));
+                .orElseThrow(() -> new ResponseStatusException(    // ✅ ResponseStatusException con 404
+                        HttpStatus.NOT_FOUND, "Usuario no encontrado"));
 
         String access  = jwtUtils.generateAccessToken(new UserDetailsImpl(managed));
         String refresh = refreshTokenService.createRefreshToken(managed);
@@ -173,12 +178,15 @@ public class AuthService {
         ObjectNode details = objectMapper.createObjectNode();
         details.put("email", managed.getEmail());
         details.put("provider", "GOOGLE");
-        auditService.logBusiness(managed.getId(), "LOGIN", "Auth", managed.getId(), true, details);
+        auditService.logBusiness(
+                managed.getId(), "AUTH_LOGIN_GOOGLE", "Auth", managed.getId(), true, details);
 
-        return new JwtResponse(access, refresh, managed.getId(), managed.getEmail(), roles, managed.getName());
+        return new JwtResponse(
+                access, refresh, managed.getId(), managed.getEmail(), roles, managed.getName());
     }
 
     // ─── LOGOUT ───────────────────────────────────────────────────────────────
+
     @Transactional
     public void logout(String email) {
         userRepository.findByEmail(email).ifPresent(user -> {
