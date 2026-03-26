@@ -103,7 +103,6 @@ public class FolderService {
 
     // ─── 4. Mover documento a carpeta ────────────────────────────────────────
 
-    @Audited(action = "FOLDER_MOVE", resourceType = "Document", resourceIdArgIndex = 1)
     public DocumentResponse moveToFolder(Long userId, Long docId, Long folderId) {
         Document doc = documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
@@ -114,11 +113,20 @@ public class FolderService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Carpeta no encontrada"));
 
-        doc.setFolderId(folderId);
-        documentRepository.save(doc);
-
-        log.info("📂 Doc moved - user={} doc={} folder={}", userId, docId, folderId);
-        return DocumentResponse.from(doc);
+        boolean success = true;
+        try {
+            doc.setFolderId(folderId);
+            documentRepository.save(doc);
+            log.info("📂 Doc moved - user={} doc={} folder={}", userId, docId, folderId);
+            return DocumentResponse.from(doc);
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", doc.getFileName());
+            auditService.logBusiness(userId, "FOLDER_MOVE", "Document", docId, success, details);
+        }
     }
 
     // ─── 5. Quitar documento de carpeta ──────────────────────────────────────
