@@ -21,7 +21,10 @@ public class ActivityHistorySpecification {
                 predicates.add(cb.equal(root.get("userId"), userId));
 
             if (action != null)
-                predicates.add(cb.like(root.get("action"), "%" + action + "%"));
+                predicates.add(cb.like(                          // ✅ consistente con resourceType
+                        cb.upper(root.get("action")),
+                        "%" + action.toUpperCase() + "%"
+                ));
 
             if (resourceType != null)
                 predicates.add(cb.equal(cb.upper(root.get("resourceType")), resourceType));
