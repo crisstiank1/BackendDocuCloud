@@ -8,11 +8,9 @@ import java.time.Instant;
 import java.util.Optional;
 
 public interface PasswordResetTokenRepository extends JpaRepository<PasswordResetToken, Long> {
-
     Optional<PasswordResetToken> findByTokenHash(String tokenHash);
-
     long deleteByExpiresAtBefore(Instant cutoff);
-
     // Fix #3: invalida tokens pendientes anteriores del mismo usuario
     void deleteByUserAndUsedAtIsNull(User user);
+    void deleteByUser_Id(Long userId);
 }

@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -116,4 +117,9 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
             """
     )
     Page<Document> findSharedByMe(@Param("userId") Long userId, Pageable pageable);
+
+    // soft delete masivo — marca todos los docs del usuario como eliminados
+    @Modifying
+    @Query("UPDATE Document d SET d.deletedAt = :now WHERE d.ownerUserId = :userId AND d.deletedAt IS NULL")
+    void softDeleteByOwnerUserId(@Param("userId") Long userId, @Param("now") Instant now);
 }

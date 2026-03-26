@@ -13,6 +13,7 @@ import com.docucloud.backend.users.model.UserRole;
 import com.docucloud.backend.users.repository.UserRepository;
 import com.docucloud.backend.users.repository.UserRoleRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -23,12 +24,21 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import com.docucloud.backend.auth.repository.RefreshTokenRepository;
+import com.docucloud.backend.auth.repository.PasswordResetTokenRepository;
+import com.docucloud.backend.documents.repository.DocumentRepository;
+import com.docucloud.backend.documents.repository.DocumentShareRepository;
+import com.docucloud.backend.favorites.repository.FavoriteRepository;
+import com.docucloud.backend.search.repository.SearchHistoryRepository;
+import com.docucloud.backend.audit.repository.ActivityHistoryRepository;
+import java.time.Instant;
 
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 @Transactional
+@Slf4j
 public class UserService {
 
     private final UserRepository userRepository;
@@ -36,6 +46,15 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final CategoryService categoryService;
     private final EmailService emailService;
+
+    // ── Repositorios nuevos para eliminación en cascada ───────────────────────
+    private final RefreshTokenRepository       refreshTokenRepository;
+    private final PasswordResetTokenRepository passwordResetTokenRepository;
+    private final ActivityHistoryRepository    activityHistoryRepository;
+    private final SearchHistoryRepository      searchHistoryRepository;
+    private final FavoriteRepository           favoriteRepository;
+    private final DocumentShareRepository      documentShareRepository;
+    private final DocumentRepository           documentRepository;
 
     public boolean existsById(Long userId) {
         return userRepository.existsById(userId);
@@ -219,7 +238,36 @@ public class UserService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "No puedes eliminar tu propia cuenta");
         }
+
+        User target = findById(targetId); // lanza 404 si no existe
+
+        log.info("🗑️ Iniciando eliminación de usuario id={} email={}", targetId, target.getEmail());
+
+        // ── 1. Tokens de sesión y recuperación ───────────────────────────────
+        refreshTokenRepository.deleteByUser_Id(targetId);
+        passwordResetTokenRepository.deleteByUser_Id(targetId);
+
+        // ── 2. Auditoría e historial ──────────────────────────────────────────
+        activityHistoryRepository.deleteByUserId(targetId);
+        searchHistoryRepository.deleteByUser_Id(targetId);
+
+        // ── 3. Favoritos ──────────────────────────────────────────────────────
+        favoriteRepository.deleteByUser_Id(targetId);
+
+        // ── 4. Shares: revocar recibidos, borrar enviados ─────────────────────
+        documentShareRepository.revokeByRecipientEmail(target.getEmail());
+        documentShareRepository.deleteBySharedByUserId(targetId);
+
+        // ── 5. Documentos: soft delete ────────────────────────────────────────
+        documentRepository.softDeleteByOwnerUserId(targetId, Instant.now());
+
+        // ── 6. Categorías del usuario (+ sus DocumentCategory) ────────────────
+        categoryService.deleteCategoriesByUserId(targetId);
+
+        // ── 7. Usuario (UserRoles se borran por CASCADE ALL automáticamente) ──
         userRepository.deleteById(targetId);
+
+        log.info("✅ Usuario eliminado correctamente id={} por adminId={}", targetId, adminId);
     }
 
     public User findById(Long userId) {

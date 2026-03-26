@@ -25,4 +25,7 @@ public interface DocumentCategoryRepository
     // Para desasociar docs cuando se borra una categoría
     List<DocumentCategory> findByCategory_IdAndDocument_OwnerUserIdAndDocument_DeletedAtIsNull(
             Long categoryId, Long ownerUserId);
+
+    // borra clasificaciones de múltiples categorías en 1 query
+    void deleteByCategory_IdIn(List<Long> categoryIds);
 }
