@@ -1,12 +1,16 @@
 package com.docucloud.backend.tags.service;
 
 import com.docucloud.backend.audit.annotation.Audited;
+import com.docucloud.backend.audit.service.AuditService;
 import com.docucloud.backend.tags.model.Tag;
 import com.docucloud.backend.tags.repository.TagRepository;
 import com.docucloud.backend.tags.dto.response.TagResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -14,7 +18,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Transactional
 public class TagService {
+
     private final TagRepository tagRepository;
+    private final AuditService  auditService;  // ✅
+    private final ObjectMapper  objectMapper;  // ✅
 
     public List<TagResponse> getUserTags(Long userId) {
         return tagRepository.findByUserId(userId)
@@ -29,12 +36,22 @@ public class TagService {
         return toResponse(tagRepository.save(tag));
     }
 
-    @Audited(action = "DELETE_TAG", resourceType = "Tag", resourceIdArgIndex = 0)
+    // ✅ Sin @Audited — auditamos manualmente para poder incluir el nombre
     public void deleteTag(Long id, Long userId) {
-        if (!tagRepository.existsByIdAndUserId(id, userId)) {
-            throw new IllegalArgumentException("Tag not found or not owned");
+        Tag tag = tagRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new IllegalArgumentException("Tag not found or not owned"));
+
+        boolean success = true;
+        try {
+            tagRepository.deleteByIdAndUserId(id, userId);
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", tag.getName());  // ✅ nombre disponible antes de borrar
+            auditService.logBusiness(userId, "DELETE_TAG", "Tag", id, success, details);
         }
-        tagRepository.deleteByIdAndUserId(id, userId);
     }
 
     private TagResponse toResponse(Tag tag) {

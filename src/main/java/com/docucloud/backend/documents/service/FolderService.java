@@ -1,6 +1,7 @@
 package com.docucloud.backend.documents.service;
 
 import com.docucloud.backend.audit.annotation.Audited;
+import com.docucloud.backend.audit.service.AuditService;
 import com.docucloud.backend.documents.dto.request.CreateFolderRequest;
 import com.docucloud.backend.documents.dto.request.RenameFolderRequest;
 import com.docucloud.backend.documents.dto.response.DocumentResponse;
@@ -9,6 +10,8 @@ import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.model.Folder;
 import com.docucloud.backend.documents.repository.DocumentRepository;
 import com.docucloud.backend.documents.repository.FolderRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -27,10 +30,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class FolderService {
 
-    private final FolderRepository folderRepository;
+    private final FolderRepository   folderRepository;
     private final DocumentRepository documentRepository;
+    private final AuditService       auditService;  // ✅
+    private final ObjectMapper       objectMapper;  // ✅
 
     // ─── 1. Crear carpeta ────────────────────────────────────────────────────
+
     @Audited(action = "CREATE_FOLDER", resourceType = "Folder")
     public FolderResponse createFolder(Long userId, CreateFolderRequest request) {
 
@@ -73,6 +79,7 @@ public class FolderService {
     }
 
     // ─── 2. Listar carpetas ──────────────────────────────────────────────────
+
     @Transactional(readOnly = true)
     public List<FolderResponse> listFolders(Long userId) {
         return folderRepository.findByOwnerUserIdOrderByNameAsc(userId)
@@ -82,6 +89,7 @@ public class FolderService {
     }
 
     // ─── 3. Documentos de una carpeta ────────────────────────────────────────
+
     @Transactional(readOnly = true)
     public Page<DocumentResponse> getDocumentsByFolder(Long userId, Long folderId, Pageable pageable) {
         folderRepository.findByIdAndOwnerUserId(folderId, userId)
@@ -94,7 +102,8 @@ public class FolderService {
     }
 
     // ─── 4. Mover documento a carpeta ────────────────────────────────────────
-    @Audited(action = "FOLDER_MOVE", resourceType = "Document", resourceIdArgIndex = 1) // ✅ movido desde controller
+
+    @Audited(action = "FOLDER_MOVE", resourceType = "Document", resourceIdArgIndex = 1)
     public DocumentResponse moveToFolder(Long userId, Long docId, Long folderId) {
         Document doc = documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
@@ -113,6 +122,7 @@ public class FolderService {
     }
 
     // ─── 5. Quitar documento de carpeta ──────────────────────────────────────
+
     public DocumentResponse removeFromFolder(Long userId, Long docId) {
         Document doc = documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
@@ -127,6 +137,7 @@ public class FolderService {
     }
 
     // ─── 6. Renombrar carpeta ─────────────────────────────────────────────────
+
     @Audited(action = "RENAME_FOLDER", resourceType = "Folder", resourceIdArgIndex = 1)
     public FolderResponse renameFolder(Long userId, Long folderId, RenameFolderRequest request) {
         Folder folder = folderRepository.findByIdAndOwnerUserId(folderId, userId)
@@ -159,25 +170,37 @@ public class FolderService {
     }
 
     // ─── 7. Eliminar carpeta ──────────────────────────────────────────────────
-    @Audited(action = "DELETE_FOLDER", resourceType = "Folder", resourceIdArgIndex = 1)
+
+    // ✅ Sin @Audited — auditamos manualmente para poder incluir el nombre
     public void deleteFolder(Long userId, Long folderId) {
         Folder folder = folderRepository.findByIdAndOwnerUserId(folderId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Carpeta no encontrada"));
 
-        // ✅ saveAll en vez de save individual por cada documento
-        List<Document> docs = documentRepository
-                .findByOwnerUserIdAndFolderIdAndDeletedAtIsNull(userId, folderId, Pageable.unpaged())
-                .getContent();
+        boolean success = true;
+        try {
+            List<Document> docs = documentRepository
+                    .findByOwnerUserIdAndFolderIdAndDeletedAtIsNull(userId, folderId, Pageable.unpaged())
+                    .getContent();
 
-        docs.forEach(doc -> doc.setFolderId(null));
-        documentRepository.saveAll(docs);
+            docs.forEach(doc -> doc.setFolderId(null));
+            documentRepository.saveAll(docs);
 
-        folderRepository.delete(folder);
-        log.info("🗑️ Folder deleted - user={} folderId={}", userId, folderId);
+            folderRepository.delete(folder);
+            log.info("🗑️ Folder deleted - user={} folderId={}", userId, folderId);
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            // ✅ nombre disponible porque cargamos el objeto antes de borrar
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", folder.getName());
+            auditService.logBusiness(userId, "DELETE_FOLDER", "Folder", folderId, success, details);
+        }
     }
 
     // ─── 8. UTIL: Calcular profundidad ────────────────────────────────────────
+
     private int calculateDepth(Folder folder) {
         int depth = 0;
         Long parentId = folder.getParentId();

@@ -1,6 +1,7 @@
 package com.docucloud.backend.documents.service;
 
 import com.docucloud.backend.audit.annotation.Audited;
+import com.docucloud.backend.audit.service.AuditService;
 import com.docucloud.backend.documents.dto.request.CreateCategoryRequest;
 import com.docucloud.backend.documents.dto.response.CategoryResponse;
 import com.docucloud.backend.documents.model.Category;
@@ -10,6 +11,8 @@ import com.docucloud.backend.documents.repository.CategoryRepository;
 import com.docucloud.backend.documents.repository.DocumentCategoryRepository;
 import com.docucloud.backend.documents.repository.DocumentRepository;
 import com.docucloud.backend.users.model.User;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -26,9 +29,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class CategoryService {
 
-    private final CategoryRepository categoryRepository;
-    private final DocumentRepository documentRepository;
-    private final DocumentCategoryRepository documentCategoryRepository;
+    private final CategoryRepository           categoryRepository;
+    private final DocumentRepository           documentRepository;
+    private final DocumentCategoryRepository   documentCategoryRepository;
+    private final AuditService                 auditService;
+    private final ObjectMapper                 objectMapper;
 
     // ─── Categorías por defecto ───────────────────────────────────────────────
 
@@ -43,7 +48,7 @@ public class CategoryService {
                 buildCategory(user.getId(), "Proyectos", "#f97316"),
                 buildCategory(user.getId(), "Otros",     "#8b5cf6")
         );
-        categoryRepository.saveAll(defaults);   //  1 sola query en vez de 7
+        categoryRepository.saveAll(defaults);   // ✅ 1 sola query en vez de 7
     }
 
     private Category buildCategory(Long userId, String name, String color) {
@@ -60,7 +65,7 @@ public class CategoryService {
     public List<CategoryResponse> listCategories(Long userId) {
         List<Category> categories = categoryRepository.findByOwnerUserIdOrderByNameAsc(userId);
 
-        // Una sola query para todos los conteos — evita N+1
+        // ✅ Una sola query para todos los conteos — evita N+1
         Map<Long, Long> countMap = categoryRepository
                 .countDocumentsGroupedByCategory(userId)
                 .stream()
@@ -95,9 +100,31 @@ public class CategoryService {
         return CategoryResponse.from(category, 0L);
     }
 
+    // ─── Actualizar ───────────────────────────────────────────────────────────
+
+    @Audited(action = "UPDATE_CATEGORY", resourceType = "Category", resourceIdArgIndex = 1)
+    @Transactional
+    public CategoryResponse updateCategory(Long userId, Long categoryId,
+                                           CreateCategoryRequest request) {
+        Category category = categoryRepository
+                .findByIdAndOwnerUserId(categoryId, userId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Categoría no encontrada"));
+
+        category.setName(request.name().trim());
+        category.setColor(request.color());
+        categoryRepository.save(category);
+
+        log.info("✏️ Category updated - user={} categoryId={}", userId, categoryId);
+
+        // ✅ Reutiliza el conteo individual solo aquí — es 1 sola categoría
+        long count = categoryRepository.countDocumentsByCategoryId(userId, categoryId);
+        return CategoryResponse.from(category, count);
+    }
+
     // ─── Eliminar ─────────────────────────────────────────────────────────────
 
-    @Audited(action = "DELETE_CATEGORY", resourceType = "Category", resourceIdArgIndex = 1)
+    // ✅ Sin @Audited — se registra manualmente para poder incluir el nombre
     @Transactional
     public void deleteCategory(Long userId, Long categoryId) {
         Category category = categoryRepository
@@ -105,11 +132,36 @@ public class CategoryService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Categoría no encontrada"));
 
-        // Una sola query DELETE en vez de N deletes individuales
-        documentCategoryRepository.deleteByCategory_Id(categoryId);
+        boolean success = true;
+        try {
+            // ✅ Una sola query DELETE en vez de N deletes individuales
+            documentCategoryRepository.deleteByCategory_Id(categoryId);
+            categoryRepository.delete(category);
+            log.info("🗑️ Category deleted - user={} categoryId={}", userId, categoryId);
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", category.getName());
+            auditService.logBusiness(userId, "DELETE_CATEGORY", "Category", categoryId, success, details);
+        }
+    }
 
-        categoryRepository.delete(category);
-        log.info("🗑️ Category deleted - user={} categoryId={}", userId, categoryId);
+    // ─── Eliminar todas las categorías de un usuario (al eliminar cuenta) ─────
+
+    // ✅ Método añadido por el remoto — se mantiene íntegro
+    @Transactional
+    public void deleteCategoriesByUserId(Long userId) {
+        List<Category> categories = categoryRepository.findByOwnerUserId(userId);
+        if (categories.isEmpty()) return;
+
+        List<Long> ids = categories.stream().map(Category::getId).toList();
+
+        documentCategoryRepository.deleteByCategory_IdIn(ids);
+        categoryRepository.deleteAll(categories);
+
+        log.info("🗑️ Categorías eliminadas para userId={} → {} categorías", userId, categories.size());
     }
 
     // ─── Asignar a documento ──────────────────────────────────────────────────
@@ -150,43 +202,5 @@ public class CategoryService {
 
         documentCategoryRepository.deleteByDocument_Id(documentId);
         log.info("📂 Category removed - user={} doc={}", userId, documentId);
-    }
-
-    // ─── Actualizar ───────────────────────────────────────────────────────────
-
-    @Audited(action = "UPDATE_CATEGORY", resourceType = "Category", resourceIdArgIndex = 1)
-    @Transactional
-    public CategoryResponse updateCategory(Long userId, Long categoryId,
-                                           CreateCategoryRequest request) {
-        Category category = categoryRepository
-                .findByIdAndOwnerUserId(categoryId, userId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "Categoría no encontrada"));
-
-        category.setName(request.name().trim());
-        category.setColor(request.color());
-        categoryRepository.save(category);
-
-        log.info("✏️ Category updated - user={} categoryId={}", userId, categoryId);
-
-        // Reutiliza el conteo individual solo aquí — es 1 sola categoría
-        long count = categoryRepository.countDocumentsByCategoryId(userId, categoryId);
-        return CategoryResponse.from(category, count);
-    }
-
-    @Transactional
-    public void deleteCategoriesByUserId(Long userId) {
-        List<Category> categories = categoryRepository.findByOwnerUserId(userId);
-        if (categories.isEmpty()) return;
-
-        List<Long> ids = categories.stream().map(Category::getId).toList();
-
-        // 1. Borra clasificaciones de documentos que apuntan a estas categorías
-        documentCategoryRepository.deleteByCategory_IdIn(ids);
-
-        // 2. Borra las categorías
-        categoryRepository.deleteAll(categories);
-
-        log.info("🗑️ Categorías eliminadas para userId={} → {} categorías", userId, categories.size());
     }
 }
