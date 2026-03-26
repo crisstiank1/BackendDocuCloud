@@ -67,6 +67,7 @@ public class AuditService {
             String resourceType,
             String fromDate,
             String toDate,
+            Boolean success,
             Pageable pageable) {
 
         Instant from = parseFromDate(fromDate);
@@ -75,19 +76,20 @@ public class AuditService {
         return repository.findAll(
                 ActivityHistorySpecification.filter(
                         userId,
-                        (action != null && !action.isBlank())               ? action.toUpperCase()        : null,
-                        (resourceType != null && !resourceType.isBlank())   ? resourceType.toUpperCase()  : null,
+                        (action != null && !action.isBlank())             ? action.toUpperCase()       : null,
+                        (resourceType != null && !resourceType.isBlank()) ? resourceType.toUpperCase() : null,
                         from,
-                        to
+                        to,
+                        success
                 ),
                 pageable
         );
     }
 
     @Transactional(readOnly = true)
-    public Page<ActivityHistory> getLogsForUser(Long userId, Pageable pageable) {  // ✅ método dedicado
+    public Page<ActivityHistory> getLogsForUser(Long userId, Pageable pageable) {
         return repository.findAll(
-                ActivityHistorySpecification.filter(userId, null, null, null, null),
+                ActivityHistorySpecification.filter(userId, null, null, null, null, null),  // ✅ 6 parámetros
                 pageable
         );
     }

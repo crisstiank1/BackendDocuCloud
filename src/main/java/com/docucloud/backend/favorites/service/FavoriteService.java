@@ -1,5 +1,6 @@
 package com.docucloud.backend.favorites.service;
 
+import com.docucloud.backend.audit.service.AuditService;
 import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.repository.DocumentRepository;
 import com.docucloud.backend.favorites.dto.response.FavoriteResponse;
@@ -7,6 +8,8 @@ import com.docucloud.backend.favorites.model.Favorite;
 import com.docucloud.backend.favorites.repository.FavoriteRepository;
 import com.docucloud.backend.users.model.User;
 import com.docucloud.backend.users.repository.UserRepository;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,6 +30,7 @@ public class FavoriteService {
     private final FavoriteRepository favoriteRepository;
     private final DocumentRepository documentRepository;
     private final UserRepository     userRepository;
+    private final AuditService       auditService;
 
     @Value("${docucloud.favorites.max-per-user:50}")
     private int maxFavoritesPerUser;
@@ -41,6 +45,17 @@ public class FavoriteService {
         if (existing.isPresent()) {
             favoriteRepository.delete(existing.get());
             log.info("⭐ Unfavorited - user={} doc={}", userId, documentId);
+
+            String docName = "—";
+            try {
+                docName = documentRepository.findById(documentId)
+                        .map(Document::getFileName)
+                        .orElse("—");
+            } catch (Exception ignored) {}
+
+            ObjectNode details = JsonNodeFactory.instance.objectNode();
+            details.put("name", docName);
+            auditService.logBusiness(userId, "FAVORITE_REMOVE", "Document", documentId, true, details);
             return false;
         }
 
@@ -70,6 +85,11 @@ public class FavoriteService {
         favoriteRepository.save(favorite);
 
         log.info("⭐ Favorited - user={} doc={}", userId, documentId);
+
+        ObjectNode details = JsonNodeFactory.instance.objectNode();
+        details.put("name", document.getFileName());
+        auditService.logBusiness(userId, "FAVORITE_ADD", "Document", documentId, true, details);
+
         return true;
     }
 
@@ -92,11 +112,6 @@ public class FavoriteService {
         return favoriteRepository.existsByUserIdAndDocumentId(userId, documentId);
     }
 
-    /**
-     * Batch lookup — retorna los IDs del set dado que son favoritos del usuario.
-     * Usado por DocumentService para evitar N+1 al paginar listas.
-     * Delega la query al repositorio con IN clause.
-     */
     @Transactional(readOnly = true)
     public Set<Long> getFavoriteIdsByDocumentIds(Long userId, Set<Long> documentIds) {
         if (documentIds == null || documentIds.isEmpty()) return Set.of();
@@ -106,7 +121,6 @@ public class FavoriteService {
     // ─── MAPPER ───────────────────────────────────────────────────────────────
 
     private FavoriteResponse toResponse(Favorite f) {
-        // FIX: cambiado de log.info a log.debug — este log no debe aparecer en producción
         Document doc = f.getDocument();
         log.debug("Mapping favorite: docId={}", doc.getId());
 

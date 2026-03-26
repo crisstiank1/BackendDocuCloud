@@ -30,10 +30,11 @@ public class AuditController {
             @RequestParam(required = false) String resourceType,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
+            @RequestParam(required = false) Boolean success,  // ✅
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
 
         return ResponseEntity.ok(
-                auditService.getLogsForAdmin(userId, action, resourceType, from, to, pageable)
+                auditService.getLogsForAdmin(userId, action, resourceType, from, to, success, pageable)
         );
     }
 
