@@ -22,8 +22,8 @@ import com.docucloud.backend.tags.dto.response.TagResponse;
 import com.docucloud.backend.tags.model.Tag;
 import com.docucloud.backend.tags.repository.TagRepository;
 import com.docucloud.backend.users.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -45,17 +45,18 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-@Service
 @Slf4j
+@Service
 @Transactional
+@RequiredArgsConstructor                          // ✅ elimina todos los @Autowired
 public class DocumentService {
 
-    @Autowired private TagRepository tagRepository;
-    @Autowired private DocumentTagRepository documentTagRepository;
-    @Autowired private ClassifierService classifierService;
-    @Autowired private DocumentShareRepository shareRepository;
-
+    // ✅ Todo final — inyección por constructor vía @RequiredArgsConstructor
     private final DocumentRepository repo;
+    private final DocumentTagRepository documentTagRepository;
+    private final DocumentShareRepository shareRepository;
+    private final TagRepository tagRepository;
+    private final ClassifierService classifierService;
     private final S3KeyService keyService;
     private final S3PresignService presignService;
     private final UserRepository userRepository;
@@ -66,8 +67,13 @@ public class DocumentService {
     private final Duration getDuration;
     private final long maxSizeMb;
 
+    // ✅ Constructor con @Value — necesario para campos con @Value + @RequiredArgsConstructor
     public DocumentService(
             DocumentRepository repo,
+            DocumentTagRepository documentTagRepository,
+            DocumentShareRepository shareRepository,
+            TagRepository tagRepository,
+            ClassifierService classifierService,
             S3KeyService keyService,
             S3PresignService presignService,
             UserRepository userRepository,
@@ -77,20 +83,23 @@ public class DocumentService {
             @Value("${docucloud.aws.s3.presignGetMinutes:10}") long getMinutes,
             @Value("${app.document.max-size-mb:50}") long maxSizeMb
     ) {
-        this.repo            = repo;
-        this.keyService      = keyService;
-        this.presignService  = presignService;
-        this.userRepository  = userRepository;
-        this.favoriteService = favoriteService;
-        this.bucket          = bucket;
-        this.putDuration     = Duration.ofMinutes(putMinutes);
-        this.getDuration     = Duration.ofMinutes(getMinutes);
-        this.maxSizeMb       = maxSizeMb;
+        this.repo                 = repo;
+        this.documentTagRepository = documentTagRepository;
+        this.shareRepository      = shareRepository;
+        this.tagRepository        = tagRepository;
+        this.classifierService    = classifierService;
+        this.keyService           = keyService;
+        this.presignService       = presignService;
+        this.userRepository       = userRepository;
+        this.favoriteService      = favoriteService;
+        this.bucket               = bucket;
+        this.putDuration          = Duration.ofMinutes(putMinutes);
+        this.getDuration          = Duration.ofMinutes(getMinutes);
+        this.maxSizeMb            = maxSizeMb;
     }
 
     // ─── UPLOAD ───────────────────────────────────────────────────────────────
 
-    @Audited(action = "DOC_UPLOAD_INIT", resourceType = "Document")
     public InitUploadResponse initUpload(Long userId, InitUploadRequest req) {
         if (req.sizeBytes() > maxSizeMb * 1024 * 1024) {
             throw new IllegalArgumentException("Archivo excede " + maxSizeMb + "MB");
@@ -116,16 +125,16 @@ public class DocumentService {
         return new InitUploadResponse(doc.getId(), url.url(), url.expiresAt(), s3Key);
     }
 
-    @Audited(action = "DOC_UPLOAD_COMPLETE", resourceType = "Document", resourceIdArgIndex = 1)
+    @Audited(action = "UPLOAD_DOCUMENT", resourceType = "Document", resourceIdArgIndex = 1)
     public void completeUpload(Long userId, Long docId, CompleteUploadRequest req) {
         Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
-                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Documento no encontrado"));
 
         doc.setSizeBytes(req.sizeBytes());
         doc.setFileHash(req.fileHash());
         doc.setStatus(DocumentStatus.AVAILABLE);
         repo.save(doc);
-        logActivity(userId, docId, "UPLOAD_COMPLETED");
 
         final Long   capturedDocId  = docId;
         final String capturedName   = doc.getFileName();
@@ -134,16 +143,15 @@ public class DocumentService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                log.info("🧠 Triggering async classification post-commit - docId={}",
-                        capturedDocId);
-                classifierService.classifyAndAssignAsync(
-                        capturedDocId, capturedName, capturedUserId);
+                log.info("🧠 Triggering async classification post-commit - docId={}", capturedDocId);
+                classifierService.classifyAndAssignAsync(capturedDocId, capturedName, capturedUserId);
             }
         });
     }
 
     // ─── LISTADO ──────────────────────────────────────────────────────────────
 
+    @Transactional(readOnly = true)
     public Page<Document> list(Long userId, Pageable pageable) {
         return repo.findAllByOwnerUserIdAndDeletedAtIsNull(userId, pageable);
     }
@@ -163,7 +171,6 @@ public class DocumentService {
         return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
     }
 
-    // ✅ NUEVO: documentos sin categoría asignada — filtra directo en BD
     @Transactional(readOnly = true)
     public Page<DocumentResponse> listUnclassified(Long userId, Pageable pageable) {
         Page<Document> page = repo.findUnclassifiedByOwnerUserId(userId, pageable);
@@ -171,7 +178,8 @@ public class DocumentService {
         return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
     }
 
-    public Page<Document> getRecentDocuments(Long userId, Pageable pageable) {
+    @Transactional(readOnly = true)
+    public Page<Document> getRecentDocuments(Long userId, Pageable pageable) {  // ✅ readOnly
         return repo.findByOwnerUserIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
                 userId, DocumentStatus.AVAILABLE, pageable);
     }
@@ -184,12 +192,14 @@ public class DocumentService {
         return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
     }
 
+    @Transactional(readOnly = true)
     public Page<Document> getActivityHistory(Long userId, Pageable pageable) {
         return getRecentDocuments(userId, pageable);
     }
 
     // ─── BÚSQUEDA ─────────────────────────────────────────────────────────────
 
+    @Transactional(readOnly = true)                                               // ✅ añadido
     public Page<Document> search(
             Long userId, String query, String mimeType,
             String statusParam, String fromDate, String toDate, Pageable pageable) {
@@ -247,17 +257,17 @@ public class DocumentService {
 
     // ─── DOWNLOAD ─────────────────────────────────────────────────────────────
 
-    @Audited(action = "DOC_DOWNLOAD_URL", resourceType = "Document", resourceIdArgIndex = 1)
+    @Audited(action = "DOWNLOAD_DOCUMENT", resourceType = "Document", resourceIdArgIndex = 1)
     public DownloadUrlResponse getDownloadUrl(Long userId, Long docId) {
         Document doc = findDocumentForUser(userId, docId);
 
         if (doc.getStatus() != DocumentStatus.AVAILABLE) {
-            throw new IllegalStateException("El documento no está disponible");
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "El documento no está disponible");
         }
 
         PresignedUrlResponse url = presignService.presignGet(
                 doc.getS3Bucket(), doc.getS3Key(), getDuration);
-        logActivity(userId, docId, "DOWNLOAD_REQUESTED");
         return new DownloadUrlResponse(url.url(), url.expiresAt());
     }
 
@@ -272,34 +282,33 @@ public class DocumentService {
 
     public Document getDocumentByIdPublic(Long id) {
         return repo.findById(id)
-                .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
+                .orElseThrow(() -> new ResponseStatusException(   // ✅ 404 en vez de 500
+                        HttpStatus.NOT_FOUND, "Documento no encontrado"));
     }
 
     public byte[] downloadFileBytes(Document document) {
         PresignedUrlResponse presigned = presignService.presignGet(
-                bucket,
-                document.getS3Key(),
-                Duration.ofMinutes(10)
-        );
-        try (InputStream is = new java.net.URI(presigned.url())
-                .toURL().openStream()) {
+                bucket, document.getS3Key(), Duration.ofMinutes(10));
+        try (InputStream is = new java.net.URI(presigned.url()).toURL().openStream()) {
             return is.readAllBytes();
         } catch (Exception e) {
-            throw new RuntimeException("Error descargando archivo de S3", e);
+            throw new ResponseStatusException(                    // ✅ 500 tipado
+                    HttpStatus.INTERNAL_SERVER_ERROR, "Error descargando archivo de S3");
         }
     }
 
     // ─── DELETE ───────────────────────────────────────────────────────────────
 
-    @Audited(action = "DOC_DELETE", resourceType = "Document", resourceIdArgIndex = 1)
+    @Audited(action = "DELETE_DOCUMENT", resourceType = "Document", resourceIdArgIndex = 1)
     public void softDelete(Long userId, Long docId) {
         Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
-                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Documento no encontrado"));
 
         doc.setDeletedAt(Instant.now());
         doc.setStatus(DocumentStatus.DELETED);
         repo.save(doc);
-        logActivity(userId, docId, "DELETED");
+        log.info("🗑️ Document deleted - user={} doc={}", userId, docId);
     }
 
     // ─── TAGS ─────────────────────────────────────────────────────────────────
@@ -307,11 +316,12 @@ public class DocumentService {
     @Transactional
     public void addTagToDocument(Long documentId, Long tagId, Long userId) {
         Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(documentId, userId)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Document not found or access denied"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Documento no encontrado"));
 
         Tag tag = tagRepository.findById(tagId)
-                .orElseThrow(() -> new IllegalArgumentException("Tag not found"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Tag no encontrado"));
 
         DocumentTagId id = new DocumentTagId(documentId, tagId);
         if (documentTagRepository.existsById(id)) {
@@ -333,10 +343,12 @@ public class DocumentService {
     @Transactional
     public void removeTagFromDocument(Long documentId, Long tagId, Long userId) {
         repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(documentId, userId)
-                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Documento no encontrado"));
         documentTagRepository.deleteByDocumentIdAndTagId(documentId, tagId);
     }
 
+    @Transactional(readOnly = true)
     public List<TagResponse> getDocumentTags(Long documentId, Long userId) {
         return documentTagRepository.findByDocumentId(documentId)
                 .stream()
@@ -346,19 +358,12 @@ public class DocumentService {
 
     // ─── STORAGE ──────────────────────────────────────────────────────────────
 
+    @Transactional(readOnly = true)
     public long getStorageUsedByUser(Long userId) {
-        return repo
-                .findByOwnerUserIdAndStatusNotAndDeletedAtIsNull(userId, DocumentStatus.DELETED)
-                .stream()
-                .mapToLong(Document::getSizeBytes)
-                .sum();
+        return repo.sumStorageByUser(userId);                     // ✅ query de agregación en BD
     }
 
     // ─── HELPERS ──────────────────────────────────────────────────────────────
-
-    private void logActivity(Long userId, Long docId, String action) {
-        log.info("📋 Activity - user={} doc={} action={}", userId, docId, action);
-    }
 
     private Set<Long> getFavoriteIds(Long userId, Page<Document> page) {
         Set<Long> docIds = page.getContent().stream()
@@ -372,7 +377,8 @@ public class DocumentService {
         if (owned.isPresent()) return owned.get();
 
         String userEmail = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"))
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Usuario no encontrado"))
                 .getEmail();
 
         boolean hasShare = shareRepository
@@ -382,9 +388,11 @@ public class DocumentService {
 
         if (hasShare) {
             return repo.findByIdAndDeletedAtIsNull(docId)
-                    .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.NOT_FOUND, "Documento no encontrado"));
         }
 
-        throw new IllegalArgumentException("Document not found or access denied");
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Documento no encontrado o acceso denegado");
     }
 }

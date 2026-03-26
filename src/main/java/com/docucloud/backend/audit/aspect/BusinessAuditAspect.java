@@ -34,9 +34,11 @@ public class BusinessAuditAspect {
     public Object auditedMethod(ProceedingJoinPoint pjp, Audited audited) throws Throwable {
         Long userId = resolveUserId();
         boolean success = true;
+        Object result = null;
 
         try {
-            return pjp.proceed();
+            result = pjp.proceed();
+            return result;
         } catch (Throwable ex) {
             success = false;
             throw ex;
@@ -45,7 +47,13 @@ public class BusinessAuditAspect {
                     ? pjp.getTarget().getClass().getSimpleName()
                     : audited.resourceType();
 
+            // Primero intenta resolverlo desde los argumentos (DELETE, RENAME)
             Long resourceId = resolveResourceId(pjp, audited.resourceIdArgIndex());
+
+            // Si no hay ID en args, extráelo del objeto retornado (CREATE)
+            if (resourceId == null && result != null) {
+                resourceId = extractIdFromResult(result);
+            }
 
             ObjectNode details = objectMapper.createObjectNode();
             details.put("method", pjp.getSignature().toShortString());
@@ -66,46 +74,31 @@ public class BusinessAuditAspect {
         }
     }
 
-    /**
-     * Busca el nombre del recurso en los argumentos del método.
-     *
-     * REGLA CLAVE: se omiten deliberadamente los tipos de Spring Security
-     * (Authentication, UserDetails, UserDetailsImpl) y tipos de infraestructura
-     * (Pageable, Long, Integer) porque también tienen getName() o toString()
-     * que devuelven el email u otros valores que no son nombres de recursos.
-     *
-     * Solo se inspeccionan DTOs de request (objetos de dominio propios)
-     * que tengan getters de nombre, y Strings cortos directos.
-     */
     private String extractResourceName(Object[] args) {
         if (args == null) return null;
 
-        // Tipos que NUNCA deben ser inspeccionados para nombre de recurso
         for (Object arg : args) {
             if (arg == null)                      continue;
-            if (arg instanceof Authentication)    continue;  // ← FIX: tenía getName() = email
-            if (arg instanceof UserDetails)        continue;  // ← FIX: tenía getUsername() = email
-            if (arg instanceof UserDetailsImpl)    continue;  // ← FIX: tipo propio
-            if (arg instanceof Pageable)           continue;  // infraestructura
-            if (arg instanceof Long)               continue;  // IDs numéricos
-            if (arg instanceof Integer)            continue;  // IDs numéricos
-            if (arg instanceof Boolean)            continue;  // flags
+            if (arg instanceof Authentication)    continue;
+            if (arg instanceof UserDetails)        continue;
+            if (arg instanceof UserDetailsImpl)    continue;
+            if (arg instanceof Pageable)           continue;
+            if (arg instanceof Long)               continue;
+            if (arg instanceof Integer)            continue;
+            if (arg instanceof Boolean)            continue;
 
-            // String directo y corto — puede ser un nombre pasado como @PathVariable
             if (arg instanceof String s && !s.isBlank() && s.length() < 200) {
-                // Excluir strings que parecen emails o UUIDs
                 if (!s.contains("@") && !s.matches("[0-9a-f-]{36}")) {
                     return s;
                 }
             }
 
-            // DTO de dominio — busca getters en orden de prioridad
             String[] getterNames = {
-                    "getFileName",  // documentos
-                    "getName",      // carpetas, categorías
-                    "getTitle",     // genérico
-                    "getNewName",   // rename requests
-                    "getQuery",     // búsquedas
+                    "getFileName",
+                    "getName",
+                    "getTitle",
+                    "getNewName",
+                    "getQuery",
             };
 
             for (String getter : getterNames) {
@@ -116,12 +109,20 @@ public class BusinessAuditAspect {
                         return s;
                     }
                 } catch (NoSuchMethodException ignored) {
-                    // Este DTO no tiene este getter, continuar
                 } catch (Exception ignored) {
-                    // Cualquier otro error, continuar
                 }
             }
         }
+        return null;
+    }
+
+    private Long extractIdFromResult(Object result) {
+        try {
+            Method getId = result.getClass().getMethod("getId");
+            Object value = getId.invoke(result);
+            if (value instanceof Long l)    return l;
+            if (value instanceof Integer i) return i.longValue();
+        } catch (Exception ignored) {}
         return null;
     }
 

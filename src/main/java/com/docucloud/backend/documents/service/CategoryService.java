@@ -1,5 +1,6 @@
 package com.docucloud.backend.documents.service;
 
+import com.docucloud.backend.audit.annotation.Audited;
 import com.docucloud.backend.documents.dto.request.CreateCategoryRequest;
 import com.docucloud.backend.documents.dto.response.CategoryResponse;
 import com.docucloud.backend.documents.model.Category;
@@ -64,6 +65,7 @@ public class CategoryService {
 
     // ─── Crear ────────────────────────────────────────────────────────────────
 
+    @Audited(action = "CREATE_CATEGORY", resourceType = "Category")
     @Transactional
     public CategoryResponse createCategory(Long userId, CreateCategoryRequest request) {
         if (categoryRepository.existsByOwnerUserIdAndName(userId, request.name())) {
@@ -85,6 +87,7 @@ public class CategoryService {
 
     // ─── Eliminar ─────────────────────────────────────────────────────────────
 
+    @Audited(action = "DELETE_CATEGORY", resourceType = "Category", resourceIdArgIndex = 1)
     @Transactional
     public void deleteCategory(Long userId, Long categoryId) {
         Category category = categoryRepository
@@ -92,7 +95,6 @@ public class CategoryService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Categoría no encontrada"));
 
-        // Elimina las clasificaciones asociadas antes de borrar la categoría
         documentCategoryRepository
                 .findByCategory_IdAndDocument_OwnerUserIdAndDocument_DeletedAtIsNull(categoryId, userId)
                 .forEach(documentCategoryRepository::delete);
@@ -144,6 +146,7 @@ public class CategoryService {
 
     // ─── Actualizar ───────────────────────────────────────────────────────────
 
+    @Audited(action = "UPDATE_CATEGORY", resourceType = "Category", resourceIdArgIndex = 1)
     @Transactional
     public CategoryResponse updateCategory(Long userId, Long categoryId, CreateCategoryRequest request) {
         Category category = categoryRepository

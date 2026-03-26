@@ -10,57 +10,61 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
-import java.util.Optional;
 import java.util.List;
+import java.util.Optional;
 
 public interface DocumentRepository extends JpaRepository<Document, Long>,
         JpaSpecificationExecutor<Document> {
 
-    // Listar todos del usuario
+    // ─── LISTADO ──────────────────────────────────────────────────────────────
+
     Page<Document> findAllByOwnerUserIdAndDeletedAtIsNull(Long ownerUserId, Pageable pageable);
 
-    // Buscar por ID + permisos
     Optional<Document> findByIdAndOwnerUserIdAndDeletedAtIsNull(Long id, Long ownerUserId);
 
-    // Recientes (status AVAILABLE)
+    Optional<Document> findByIdAndDeletedAtIsNull(Long id);
+
     Page<Document> findByOwnerUserIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
             Long ownerUserId, DocumentStatus status, Pageable pageable);
 
-    // Necesario para accessShare() sin filtro de owner
-    Optional<Document> findByIdAndDeletedAtIsNull(Long id);
+    // ─── CARPETAS ─────────────────────────────────────────────────────────────
 
-    // Documentos de una carpeta
     Page<Document> findByOwnerUserIdAndFolderIdAndDeletedAtIsNull(
             Long ownerUserId, Long folderId, Pageable pageable);
 
-    // Documentos sin carpeta
     Page<Document> findByOwnerUserIdAndFolderIdIsNullAndDeletedAtIsNull(
             Long ownerUserId, Pageable pageable);
 
-    // Búsqueda solo por nombre (rápida)
+    // ─── BÚSQUEDA ─────────────────────────────────────────────────────────────
+
     Page<Document> findByOwnerUserIdAndDeletedAtIsNullAndFileNameContainingIgnoreCaseOrderByCreatedAtDesc(
             Long ownerUserId, String nameQuery, Pageable pageable);
 
-    // Por tipo MIME
     Page<Document> findByOwnerUserIdAndMimeTypeAndDeletedAtIsNullOrderByCreatedAtDesc(
             Long ownerUserId, String mimeType, Pageable pageable);
 
-    // Por rango de fechas
     Page<Document> findByOwnerUserIdAndCreatedAtBetweenAndDeletedAtIsNullOrderByCreatedAtDesc(
             Long ownerUserId, Instant from, Instant to, Pageable pageable);
 
-    // Contar documentos por usuario
+    // ─── CONTEOS ──────────────────────────────────────────────────────────────
+
     long countByOwnerUserIdAndDeletedAtIsNull(Long ownerUserId);
 
-    // Documentos por status
     long countByOwnerUserIdAndStatusAndDeletedAtIsNull(Long ownerUserId, DocumentStatus status);
 
-    List<Document> findByOwnerUserIdAndStatusNotAndDeletedAtIsNull(
-            Long ownerUserId,
-            DocumentStatus status
-    );
+    // ─── STORAGE ──────────────────────────────────────────────────────────────
 
-    // Documentos por categoría
+    // ✅ Agregación en BD — reemplaza findByOwnerUserIdAndStatusNotAndDeletedAtIsNull
+    @Query("""
+            SELECT COALESCE(SUM(d.sizeBytes), 0) FROM Document d
+            WHERE d.ownerUserId = :userId
+              AND d.status != com.docucloud.backend.documents.model.DocumentStatus.DELETED
+              AND d.deletedAt IS NULL
+            """)
+    long sumStorageByUser(@Param("userId") Long userId);
+
+    // ─── CATEGORÍAS ───────────────────────────────────────────────────────────
+
     @Query("""
             SELECT d FROM Document d
             WHERE d.ownerUserId = :ownerUserId
@@ -72,25 +76,25 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
             @Param("categoryId") Long categoryId,
             Pageable pageable);
 
-    // Documentos sin categoría asignada
     @Query("""
             SELECT d FROM Document d
             WHERE d.ownerUserId = :ownerUserId
               AND d.deletedAt IS NULL
-              AND d.status != 'DELETED'
+              AND d.status != com.docucloud.backend.documents.model.DocumentStatus.DELETED
               AND d.classification IS NULL
             """)
     Page<Document> findUnclassifiedByOwnerUserId(
             @Param("ownerUserId") Long ownerUserId,
             Pageable pageable);
 
-    // Documentos que el usuario ha compartido con al menos un share activo
+    // ─── COMPARTIDOS ──────────────────────────────────────────────────────────
+
     @Query(
             value = """
             SELECT DISTINCT d FROM Document d
             WHERE d.ownerUserId = :userId
               AND d.deletedAt IS NULL
-              AND d.status != 'DELETED'
+              AND d.status != com.docucloud.backend.documents.model.DocumentStatus.DELETED
               AND EXISTS (
                   SELECT 1 FROM DocumentShare s
                   WHERE s.documentId = d.id
@@ -102,7 +106,7 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
             SELECT COUNT(DISTINCT d) FROM Document d
             WHERE d.ownerUserId = :userId
               AND d.deletedAt IS NULL
-              AND d.status != 'DELETED'
+              AND d.status != com.docucloud.backend.documents.model.DocumentStatus.DELETED
               AND EXISTS (
                   SELECT 1 FROM DocumentShare s
                   WHERE s.documentId = d.id
@@ -111,8 +115,5 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
               )
             """
     )
-    Page<Document> findSharedByMe(
-            @Param("userId") Long userId,
-            Pageable pageable
-    );
+    Page<Document> findSharedByMe(@Param("userId") Long userId, Pageable pageable);
 }

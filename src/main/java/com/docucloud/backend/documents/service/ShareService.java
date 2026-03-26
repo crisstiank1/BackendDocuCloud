@@ -1,5 +1,6 @@
 package com.docucloud.backend.documents.service;
 
+import com.docucloud.backend.audit.annotation.Audited;
 import com.docucloud.backend.common.service.EmailService;
 import com.docucloud.backend.documents.dto.request.ShareRequest;
 import com.docucloud.backend.documents.dto.response.*;
@@ -55,17 +56,18 @@ public class ShareService {
             @Value("${docucloud.aws.s3.presignGetMinutes:10}") long getMinutes
     ) {
         this.documentRepository = documentRepository;
-        this.shareRepository = shareRepository;
-        this.presignService = presignService;
-        this.passwordEncoder = passwordEncoder;
-        this.emailService = emailService;
-        this.userRepository = userRepository;
-        this.baseUrl = baseUrl;
-        this.getMinutes = getMinutes;
+        this.shareRepository    = shareRepository;
+        this.presignService     = presignService;
+        this.passwordEncoder    = passwordEncoder;
+        this.emailService       = emailService;
+        this.userRepository     = userRepository;
+        this.baseUrl            = baseUrl;
+        this.getMinutes         = getMinutes;
     }
 
     // ─── 1. Crear share ───────────────────────────────────────────────────────
 
+    @Audited(action = "SHARE_DOCUMENT", resourceType = "DocumentShare", resourceIdArgIndex = 0)
     public ShareResponse shareDocument(Long docId, ShareRequest request, Long userId) {
         Document doc = documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
@@ -106,7 +108,7 @@ public class ShareService {
         return new ShareResponse(shareUrl, share.getId(), share.getExpiresAt());
     }
 
-    // ─── 2. Shares activos de un documento (para el modal de compartir) ───────
+    // ─── 2. Shares activos de un documento ───────────────────────────────────
 
     @Transactional(readOnly = true)
     public List<ShareSummaryResponse> getDocumentShares(Long docId, Long userId) {
@@ -134,6 +136,7 @@ public class ShareService {
 
     // ─── 3. Revocar share ─────────────────────────────────────────────────────
 
+    @Audited(action = "REVOKE_SHARE", resourceType = "DocumentShare")
     public void revokeShare(UUID shareId, Long userId) {
         DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -202,7 +205,8 @@ public class ShareService {
     // ─── 6. Mis shares enviados ───────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public Page<ShareSummaryResponse> getMyShares(Long userId, boolean includeRevoked, Pageable pageable) {
+    public Page<ShareSummaryResponse> getMyShares(Long userId, boolean includeRevoked,
+                                                  Pageable pageable) {
         Page<DocumentShare> shares = includeRevoked
                 ? shareRepository.findBySharedByUserIdOrderByCreatedAtDesc(userId, pageable)
                 : shareRepository.findBySharedByUserIdAndRevokedFalseOrderByCreatedAtDesc(userId, pageable);
@@ -229,14 +233,13 @@ public class ShareService {
         ));
     }
 
-    // ─── 7. Compartidos por mí (agrupado por documento) ──────────────────────
+    // ─── 7. Compartidos por mí ────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public Page<SharedByMeResponse> getSharedByMe(Long userId, Pageable pageable) {
         Page<Document> docs = documentRepository.findSharedByMe(userId, pageable);
 
         return docs.map(doc -> {
-
             List<SharedByMeResponse.ShareSummary> summaries = shareRepository
                     .findByDocumentIdAndSharedByUserIdAndRevokedFalse(doc.getId(), userId)
                     .stream()
@@ -246,13 +249,11 @@ public class ShareService {
                             .permission(s.getPermission().name())
                             .hasPassword(s.getPasswordHash() != null)
                             .usedCount(s.getUsedCount())
-                            .expiresAt(s.getExpiresAt() != null ? s.getExpiresAt().toString() : null)
+                            .expiresAt(s.getExpiresAt() != null
+                                    ? s.getExpiresAt().toString() : null)
                             .createdAt(s.getCreatedAt().toString())
                             .build())
                     .collect(Collectors.toList());
-
-            // Generamos la URL presignada solo si es imagen
-            String thumbnailUrl = generateThumbnailUrl(doc);
 
             return SharedByMeResponse.builder()
                     .documentId(doc.getId())
@@ -260,14 +261,12 @@ public class ShareService {
                     .mimeType(doc.getMimeType())
                     .sizeBytes(doc.getSizeBytes())
                     .createdAt(doc.getCreatedAt().toString())
-                    .thumbnailUrl(thumbnailUrl)
                     .shares(summaries)
                     .build();
         });
     }
 
-
-    // ─── 8. Compartidos conmigo  ──────────────────────────────────
+    // ─── 8. Compartidos conmigo ───────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public Page<SharedWithMeResponse> getSharedWithMe(String email, Pageable pageable) {
@@ -283,15 +282,14 @@ public class ShareService {
                             .orElseThrow(() -> new ResponseStatusException(
                                     HttpStatus.NOT_FOUND, "Usuario no encontrado"));
 
-                    // Generamos la URL presignada solo si es imagen
-                    String thumbnailUrl = generateThumbnailUrl(doc);
-
-                    return SharedWithMeResponse.from(share, doc, sharedBy, generateThumbnailUrl(doc));
+                    String thumbnailUrl = generateThumbnailUrl(doc); // ✅ una sola vez
+                    return SharedWithMeResponse.from(share, doc, sharedBy, thumbnailUrl);
                 });
     }
 
     // ─── 9. Actualizar permiso ────────────────────────────────────────────────
 
+    @Audited(action = "UPDATE_SHARE_PERMISSION", resourceType = "DocumentShare")
     public ShareResponse updateSharePermission(UUID shareId, Permission newPermission, Long userId) {
         DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -323,24 +321,6 @@ public class ShareService {
         return new ShareResponse(shareUrl, share.getId(), share.getExpiresAt());
     }
 
-    // ─── Helper: validar share ────────────────────────────────────────────────
-
-    private DocumentShare validateShare(UUID shareId, String password) {
-        DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "Enlace inválido o revocado"));
-
-        if (share.getExpiresAt() != null && share.getExpiresAt().isBefore(Instant.now()))
-            throw new ResponseStatusException(HttpStatus.GONE, "Este enlace ha expirado");
-
-        if (share.getPasswordHash() != null) {
-            if (password == null || !passwordEncoder.matches(password, share.getPasswordHash()))
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Contraseña incorrecta");
-        }
-
-        return share;
-    }
-
     // ─── Destinatario elimina su propio acceso ────────────────────────────────
 
     public void removeSharedWithMe(UUID shareId, String email) {
@@ -355,14 +335,16 @@ public class ShareService {
 
     // ─── URL de escritura para destinatario con permiso WRITE ─────────────────
 
-    public PresignedUrlResponse getWriteUrlForRecipient(UUID shareId, String email, String mimeType) {
+    public PresignedUrlResponse getWriteUrlForRecipient(UUID shareId, String email,
+                                                        String mimeType) {
         DocumentShare share = shareRepository
                 .findByIdAndRecipientEmailAndRevokedFalse(shareId, email)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Share no encontrado"));
 
         if (share.getPermission() != Permission.WRITE)
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No tienes permiso de escritura");
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN, "No tienes permiso de escritura");
 
         Document doc = documentRepository
                 .findByIdAndDeletedAtIsNull(share.getDocumentId())
@@ -373,9 +355,28 @@ public class ShareService {
                 doc.getS3Bucket(), doc.getS3Key(), mimeType, Duration.ofMinutes(getMinutes));
     }
 
-    // ─── Helper: URL presignada para miniaturas de imágenes ───────────────────────
+    // ─── Helper: validar share ────────────────────────────────────────────────
 
-    private String generateThumbnailUrl(Document doc) {
+    private DocumentShare validateShare(UUID shareId, String password) {
+        DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Enlace inválido o revocado"));
+
+        if (share.getExpiresAt() != null && share.getExpiresAt().isBefore(Instant.now()))
+            throw new ResponseStatusException(HttpStatus.GONE, "Este enlace ha expirado");
+
+        if (share.getPasswordHash() != null) {
+            if (password == null || !passwordEncoder.matches(password, share.getPasswordHash()))
+                throw new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED, "Contraseña incorrecta");
+        }
+
+        return share;
+    }
+
+    // ─── Helper: URL presignada para miniaturas de imágenes ──────────────────
+
+    private String generateThumbnailUrl(Document doc) {   // ✅ método faltante añadido
         if (doc.getMimeType() == null || !doc.getMimeType().startsWith("image/")) {
             return null;
         }
@@ -384,7 +385,8 @@ public class ShareService {
                     .presignGet(doc.getS3Bucket(), doc.getS3Key(), Duration.ofMinutes(getMinutes))
                     .url();
         } catch (Exception ex) {
-            log.warn("⚠️ No se pudo generar thumbnailUrl para doc={}: {}", doc.getId(), ex.getMessage());
+            log.warn("⚠️ No se pudo generar thumbnailUrl para doc={}: {}",
+                    doc.getId(), ex.getMessage());
             return null;
         }
     }

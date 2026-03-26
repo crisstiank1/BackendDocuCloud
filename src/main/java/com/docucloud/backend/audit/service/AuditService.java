@@ -100,6 +100,16 @@ public class AuditService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public long countFailed() {
+        return repository.countByIsSuccessfulFalse();
+    }
+
+    @Transactional(readOnly = true)
+    public long countUniqueUsers() {
+        return repository.countDistinctUserId();
+    }
+
     private InetAddress toInet(String ipAddress) {
         try {
             if (ipAddress == null || ipAddress.isBlank()) return null;

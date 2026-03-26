@@ -24,7 +24,7 @@ public class ActivityHistorySpecification {
                 predicates.add(cb.like(root.get("action"), "%" + action + "%"));
 
             if (resourceType != null)
-                predicates.add(cb.equal(root.get("resourceType"), resourceType));
+                predicates.add(cb.equal(cb.upper(root.get("resourceType")), resourceType));
 
             if (from != null)
                 predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), from));

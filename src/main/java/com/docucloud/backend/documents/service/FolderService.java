@@ -1,5 +1,6 @@
 package com.docucloud.backend.documents.service;
 
+import com.docucloud.backend.audit.annotation.Audited;
 import com.docucloud.backend.documents.dto.request.CreateFolderRequest;
 import com.docucloud.backend.documents.dto.request.RenameFolderRequest;
 import com.docucloud.backend.documents.dto.response.DocumentResponse;
@@ -20,8 +21,8 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.stream.Collectors;
 
-@Service
 @Slf4j
+@Service
 @Transactional
 @RequiredArgsConstructor
 public class FolderService {
@@ -29,7 +30,8 @@ public class FolderService {
     private final FolderRepository folderRepository;
     private final DocumentRepository documentRepository;
 
-    // ─── 1. Crear carpeta (RAÍZ O SUBCARPETA) ─────────────────────────────────
+    // ─── 1. Crear carpeta ────────────────────────────────────────────────────
+    @Audited(action = "CREATE_FOLDER", resourceType = "Folder")
     public FolderResponse createFolder(Long userId, CreateFolderRequest request) {
 
         Folder folder = new Folder();
@@ -46,21 +48,23 @@ public class FolderService {
                         "No se pueden crear carpetas con más de 5 niveles de profundidad");
             }
 
-            if (folderRepository.existsByOwnerUserIdAndParentIdAndName(userId, request.getParentId(), request.getName())) {
+            if (folderRepository.existsByOwnerUserIdAndParentIdAndName(
+                    userId, request.getParentId(), request.getName())) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "Ya existe una subcarpeta con ese nombre en esta carpeta");
             }
 
             folder.setParentId(request.getParentId());
-            folder.setFullPath(parent.getFullPath() + "/" + request.getName()); // ← fix
+            folder.setFullPath(parent.getFullPath() + "/" + request.getName());
             log.info("📁 Subcarpeta created - user={} name={} parentId={}",
                     userId, request.getName(), request.getParentId());
         } else {
-            if (folderRepository.existsByOwnerUserIdAndParentIdIsNullAndName(userId, request.getName())) {
+            if (folderRepository.existsByOwnerUserIdAndParentIdIsNullAndName(
+                    userId, request.getName())) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "Ya existe una carpeta raíz con ese nombre");
             }
-            folder.setFullPath(request.getName()); // ← fix
+            folder.setFullPath(request.getName());
             log.info("📁 Carpeta raíz created - user={} name={}", userId, request.getName());
         }
 
@@ -68,7 +72,7 @@ public class FolderService {
         return FolderResponse.from(folder);
     }
 
-    // ─── 2. Listar carpetas (SOLO RAÍZ) ──────────────────────────────────────
+    // ─── 2. Listar carpetas ──────────────────────────────────────────────────
     @Transactional(readOnly = true)
     public List<FolderResponse> listFolders(Long userId) {
         return folderRepository.findByOwnerUserIdOrderByNameAsc(userId)
@@ -77,7 +81,7 @@ public class FolderService {
                 .collect(Collectors.toList());
     }
 
-    // ─── 3. Documentos de una carpeta ─────────────────────────────────────────
+    // ─── 3. Documentos de una carpeta ────────────────────────────────────────
     @Transactional(readOnly = true)
     public Page<DocumentResponse> getDocumentsByFolder(Long userId, Long folderId, Pageable pageable) {
         folderRepository.findByIdAndOwnerUserId(folderId, userId)
@@ -89,7 +93,8 @@ public class FolderService {
                 .map(DocumentResponse::from);
     }
 
-    // ─── 4. Mover documento a carpeta ─────────────────────────────────────────
+    // ─── 4. Mover documento a carpeta ────────────────────────────────────────
+    @Audited(action = "FOLDER_MOVE", resourceType = "Document", resourceIdArgIndex = 1) // ✅ movido desde controller
     public DocumentResponse moveToFolder(Long userId, Long docId, Long folderId) {
         Document doc = documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
@@ -107,7 +112,7 @@ public class FolderService {
         return DocumentResponse.from(doc);
     }
 
-    // ─── 5. Quitar documento de carpeta ───────────────────────────────────────
+    // ─── 5. Quitar documento de carpeta ──────────────────────────────────────
     public DocumentResponse removeFromFolder(Long userId, Long docId) {
         Document doc = documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
@@ -121,45 +126,52 @@ public class FolderService {
         return DocumentResponse.from(doc);
     }
 
-    // ─── 6. Renombrar carpeta (por nivel) ─────────────────────────────────────
+    // ─── 6. Renombrar carpeta ─────────────────────────────────────────────────
+    @Audited(action = "RENAME_FOLDER", resourceType = "Folder", resourceIdArgIndex = 1)
     public FolderResponse renameFolder(Long userId, Long folderId, RenameFolderRequest request) {
         Folder folder = folderRepository.findByIdAndOwnerUserId(folderId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Carpeta no encontrada"));
 
         if (folder.getParentId() == null) {
-            if (folderRepository.existsByOwnerUserIdAndParentIdIsNullAndName(userId, request.getName())) {
+            if (folderRepository.existsByOwnerUserIdAndParentIdIsNullAndName(
+                    userId, request.getName())) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "Ya existe una carpeta raíz con ese nombre");
             }
-            folder.setFullPath(request.getName()); // ← fix
+            folder.setFullPath(request.getName());
         } else {
-            if (folderRepository.existsByOwnerUserIdAndParentIdAndName(userId, folder.getParentId(), request.getName())) {
+            if (folderRepository.existsByOwnerUserIdAndParentIdAndName(
+                    userId, folder.getParentId(), request.getName())) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "Ya existe una subcarpeta con ese nombre en esta carpeta");
             }
             Folder parent = folderRepository.findById(folder.getParentId()).orElseThrow();
-            folder.setFullPath(parent.getFullPath() + "/" + request.getName()); // ← fix
+            folder.setFullPath(parent.getFullPath() + "/" + request.getName());
         }
 
         folder.setName(request.getName());
         folderRepository.save(folder);
 
-        log.info("✏️ Folder renamed - user={} folderId={} newName={}", userId, folderId, request.getName());
+        log.info("✏️ Folder renamed - user={} folderId={} newName={}",
+                userId, folderId, request.getName());
         return FolderResponse.from(folder);
     }
 
-    // ─── 7. Eliminar carpeta (desasocia docs) ─────────────────────────────────
+    // ─── 7. Eliminar carpeta ──────────────────────────────────────────────────
+    @Audited(action = "DELETE_FOLDER", resourceType = "Folder", resourceIdArgIndex = 1)
     public void deleteFolder(Long userId, Long folderId) {
         Folder folder = folderRepository.findByIdAndOwnerUserId(folderId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Carpeta no encontrada"));
 
-        documentRepository.findByOwnerUserIdAndFolderIdAndDeletedAtIsNull(userId, folderId, Pageable.unpaged())
-                .forEach(doc -> {
-                    doc.setFolderId(null);
-                    documentRepository.save(doc);
-                });
+        // ✅ saveAll en vez de save individual por cada documento
+        List<Document> docs = documentRepository
+                .findByOwnerUserIdAndFolderIdAndDeletedAtIsNull(userId, folderId, Pageable.unpaged())
+                .getContent();
+
+        docs.forEach(doc -> doc.setFolderId(null));
+        documentRepository.saveAll(docs);
 
         folderRepository.delete(folder);
         log.info("🗑️ Folder deleted - user={} folderId={}", userId, folderId);

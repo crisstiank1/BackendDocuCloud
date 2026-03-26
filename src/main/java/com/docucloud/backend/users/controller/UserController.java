@@ -6,7 +6,9 @@ import com.docucloud.backend.users.dto.request.UpdateProfileRequest;
 import com.docucloud.backend.users.dto.response.UserResponse;
 import com.docucloud.backend.users.service.UserService;
 import jakarta.validation.Valid;
-import org.springframework.data.domain.Page;              // ✅ import faltante
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -14,35 +16,24 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/users")
+@RequiredArgsConstructor
 public class UserController {
 
     private final UserService userService;
 
-    public UserController(UserService userService) {
-        this.userService = userService;
-    }
-
-    // ── Helper centralizado — usado en todos los endpoints ───────────────────
     private Long getUserId(Authentication auth) {
         return ((UserDetailsImpl) auth.getPrincipal()).getId();
     }
 
-    // ── Perfil propio (cualquier usuario autenticado) ────────────────────────
+    // ── Perfil propio ────────────────────────────────────────────────────────
 
     @GetMapping("/me")
     public ResponseEntity<UserResponse> getProfile(Authentication auth) {
-        System.out.println("📥 LLEGÓ A /api/users/me");
-        try {
-            Long userId = getUserId(auth);
-            System.out.println(">>> /api/users/me para userId: " + userId + ", username: " + auth.getName());
-            return ResponseEntity.ok(userService.getProfile(userId));
-        } catch (Exception e) {
-            System.err.println("❌ Error en /api/users/me: " + e.getMessage());
-            e.printStackTrace();
-            throw e; // relanza para que Spring lo convierta en HTTP error
-        }
+        // ✅ System.out / try-catch de debug eliminados
+        return ResponseEntity.ok(userService.getProfile(getUserId(auth)));
     }
 
     @PutMapping("/me")
@@ -69,7 +60,7 @@ public class UserController {
             @RequestBody Map<String, Integer> limits,
             Authentication auth) {
         return ResponseEntity.ok(userService.updateLimits(
-                getUserId(auth),          // ✅ usa el helper, no casteo inline
+                getUserId(auth),
                 id,
                 limits.get("maxFolders"),
                 limits.get("maxTags"),
@@ -79,15 +70,11 @@ public class UserController {
 
     @GetMapping("/{id}/limits")
     @PreAuthorize("hasRole('ADMIN') or #id == authentication.principal.id")
-    public ResponseEntity<Map<String, Object>> getLimits(
-            @PathVariable Long id) {     // ✅ auth eliminado — ya no se usa
-
-        // ✅ @PreAuthorize ya garantiza acceso; sin verificación manual duplicada
-        // ✅ currentUserId eliminado del response — era info interna innecesaria
+    public ResponseEntity<Map<String, Object>> getLimits(@PathVariable Long id) {
         var user = userService.findById(id);
         return ResponseEntity.ok(Map.of(
-                "maxFolders",  user.getMaxFolders(),
-                "maxTags",     user.getMaxTags(),
+                "maxFolders",   user.getMaxFolders(),
+                "maxTags",      user.getMaxTags(),
                 "maxFavorites", user.getMaxFavorites()
         ));
     }

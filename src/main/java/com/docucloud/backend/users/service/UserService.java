@@ -1,5 +1,6 @@
 package com.docucloud.backend.users.service;
 
+import com.docucloud.backend.audit.annotation.Audited;
 import com.docucloud.backend.documents.service.CategoryService;
 import com.docucloud.backend.common.service.EmailService;
 import com.docucloud.backend.users.dto.request.ChangePasswordRequest;
@@ -48,7 +49,6 @@ public class UserService {
         User user = userRepository.findByEmail(email)
                 .orElseGet(() -> createGoogleUser(email, name, picture));
 
-        // Actualiza foto y nombre si cambiaron
         if (!isNew) {
             user.setName(name);
             user.setPhotoUrl(picture);
@@ -79,26 +79,20 @@ public class UserService {
         userRoleRepository.save(userRole);
 
         categoryService.createDefaultCategories(user);
-
         emailService.sendWelcome(email, name);
 
         return user;
     }
 
-
     // ── Perfil ────────────────────────────────────────────────────────────────
 
     public UserResponse getProfile(Long userId) {
-        System.out.println(">>> UserService.getProfile(" + userId + ")");
-
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found: " + userId));
-
-        System.out.println("✅ Usuario encontrado: " + user.getEmail() + ", enabled=" + user.isEnabled() + ", roles=" + user.getRoles());
-
         return UserResponse.from(findById(userId));
     }
 
+    @Audited(action = "UPDATE_USER", resourceType = "User", resourceIdArgIndex = 0)
     public UserResponse updateProfile(Long userId, UpdateProfileRequest request) {
         User user = findById(userId);
 
@@ -120,7 +114,6 @@ public class UserService {
     public void changePassword(Long userId, ChangePasswordRequest request) {
         User user = findById(userId);
 
-        // Usuario Google sin contraseña local — crear contraseña nueva directamente
         if (user.getProvider() == Provider.GOOGLE && !user.isHasLocalPassword()) {
             user.setPassword(passwordEncoder.encode(request.newPassword()));
             user.setHasLocalPassword(true);
@@ -182,6 +175,7 @@ public class UserService {
         return users.map(UserResponse::from);
     }
 
+    @Audited(action = "CHANGE_USER_ROLE", resourceType = "User", resourceIdArgIndex = 1)
     public UserResponse updateRole(Long adminId, Long targetId, String roleName) {
         if (adminId.equals(targetId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -208,6 +202,7 @@ public class UserService {
         return UserResponse.from(findById(targetId));
     }
 
+    @Audited(action = "UPDATE_USER", resourceType = "User", resourceIdArgIndex = 1)
     public UserResponse toggleStatus(Long adminId, Long targetId) {
         if (adminId.equals(targetId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -218,6 +213,7 @@ public class UserService {
         return UserResponse.from(userRepository.save(user));
     }
 
+    @Audited(action = "DELETE_USER", resourceType = "User", resourceIdArgIndex = 1)
     public void deleteUser(Long adminId, Long targetId) {
         if (adminId.equals(targetId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,

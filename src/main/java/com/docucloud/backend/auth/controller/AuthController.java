@@ -20,17 +20,20 @@ import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
-import com.google.api.client.util.Value;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import java.util.Collections;
-import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;   // ✅ import corregido
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
+import java.util.Map;
+
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -42,8 +45,11 @@ public class AuthController {
     private final PasswordResetService passwordResetService;
     private final RecaptchaService recaptchaService;
 
-    @Value("${security.recaptcha.enabled:true}")
+    @Value("${security.recaptcha.enabled:true}")   // ✅ ahora sí se inyecta
     private boolean recaptchaEnabled;
+
+    @Value("${google.client-id}")                  // ✅ sacado del hardcode
+    private String googleClientId;
 
     public AuthController(
             AuthService authService,
@@ -51,8 +57,7 @@ public class AuthController {
             UserService userService,
             JwtUtils jwtUtils,
             PasswordResetService passwordResetService,
-            RecaptchaService recaptchaService
-    ) {
+            RecaptchaService recaptchaService) {
         this.authService = authService;
         this.refreshTokenService = refreshTokenService;
         this.userService = userService;
@@ -70,14 +75,14 @@ public class AuthController {
                         .body(new MessageResponse("reCAPTCHA inválido"));
             }
         }
-
         authService.register(request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(new MessageResponse("Usuario registrado"));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(HttpServletRequest httpReq, @Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<?> login(HttpServletRequest httpReq,
+                                   @Valid @RequestBody LoginRequest request) {
         if (recaptchaEnabled) {
             boolean ok = recaptchaService.verify(request.getRecaptchaToken());
             if (!ok) {
@@ -85,14 +90,13 @@ public class AuthController {
                         .body(new MessageResponse("reCAPTCHA inválido"));
             }
         }
-
         JwtResponse tokens = authService.login(request, httpReq.getRemoteAddr());
         return ResponseEntity.ok(tokens);
     }
 
-
     @PostMapping("/refresh")
-    public ResponseEntity<TokenRefreshResponse> refresh(@Valid @RequestBody TokenRefreshRequest request) {
+    public ResponseEntity<TokenRefreshResponse> refresh(
+            @Valid @RequestBody TokenRefreshRequest request) {
         return refreshTokenService.refreshAccessToken(request.getRefreshToken())
                 .map(t -> ResponseEntity.ok(new TokenRefreshResponse(t.access(), t.refresh())))
                 .orElseThrow(() -> new TokenRefreshException("Refresh token inválido o expirado"));
@@ -102,12 +106,12 @@ public class AuthController {
     public ResponseEntity<?> googleLogin(@RequestBody Map<String, String> body) {
         try {
             String idTokenString = body.get("credential");
-            String CLIENT_ID = "332858462648-clqf017jqb788uskjdfsa3hmi9af85mu.apps.googleusercontent.com";
 
+            // ✅ googleClientId inyectado desde properties, no hardcodeado
             GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(
                     GoogleNetHttpTransport.newTrustedTransport(),
                     GsonFactory.getDefaultInstance())
-                    .setAudience(Collections.singletonList(CLIENT_ID))
+                    .setAudience(Collections.singletonList(googleClientId))
                     .build();
 
             GoogleIdToken idToken = verifier.verify(idTokenString);
@@ -117,43 +121,39 @@ public class AuthController {
             }
 
             GoogleIdToken.Payload payload = idToken.getPayload();
-            String email = payload.getEmail();
-            String name = (String) payload.get("name");
+            String email   = payload.getEmail();
+            String name    = (String) payload.get("name");
             String picture = (String) payload.get("picture");
 
             User user = userService.findOrCreateFromGoogle(email, name, picture);
-
             JwtResponse tokens = authService.loginWithGoogle(user);
             return ResponseEntity.ok(tokens);
 
         } catch (Exception e) {
+            log.error("Error autenticando con Google", e);   // ✅ log estructurado
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Error autenticando con Google"));
         }
     }
 
     @PostMapping("/forgot-password")
-    public ResponseEntity<MessageResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest req) {
-
+    public ResponseEntity<MessageResponse> forgotPassword(
+            @Valid @RequestBody ForgotPasswordRequest req) {
         if (recaptchaEnabled) {
             boolean ok = recaptchaService.verify(req.getRecaptchaToken());
             if (!ok) {
                 return ResponseEntity.ok(new MessageResponse(
-                        "Si el correo existe, enviaremos instrucciones para restablecer tu contraseña."
-                ));
+                        "Si el correo existe, enviaremos instrucciones para restablecer tu contraseña."));
             }
         }
-
         passwordResetService.requestPasswordReset(req.getEmail());
-
         return ResponseEntity.ok(new MessageResponse(
-                "Si el correo existe, enviaremos instrucciones para restablecer tu contraseña."
-        ));
+                "Si el correo existe, enviaremos instrucciones para restablecer tu contraseña."));
     }
 
-
     @PostMapping("/reset-password")
-    public ResponseEntity<MessageResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest req) {
+    public ResponseEntity<MessageResponse> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest req) {
         passwordResetService.resetPassword(req.getToken(), req.getNewPassword());
         return ResponseEntity.ok(new MessageResponse("Contraseña actualizada correctamente."));
     }

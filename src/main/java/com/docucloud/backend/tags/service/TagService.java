@@ -1,5 +1,6 @@
 package com.docucloud.backend.tags.service;
 
+import com.docucloud.backend.audit.annotation.Audited;
 import com.docucloud.backend.tags.model.Tag;
 import com.docucloud.backend.tags.repository.TagRepository;
 import com.docucloud.backend.tags.dto.response.TagResponse;
@@ -20,6 +21,7 @@ public class TagService {
                 .stream().map(this::toResponse).collect(Collectors.toList());
     }
 
+    @Audited(action = "CREATE_TAG", resourceType = "Tag")
     public TagResponse createTag(String name, Long userId) {
         if (tagRepository.findByNameAndUserId(name, userId).isPresent())
             throw new IllegalArgumentException("Tag exists");
@@ -27,14 +29,13 @@ public class TagService {
         return toResponse(tagRepository.save(tag));
     }
 
-    // AGREGAR método en TagService
+    @Audited(action = "DELETE_TAG", resourceType = "Tag", resourceIdArgIndex = 0)
     public void deleteTag(Long id, Long userId) {
         if (!tagRepository.existsByIdAndUserId(id, userId)) {
             throw new IllegalArgumentException("Tag not found or not owned");
         }
         tagRepository.deleteByIdAndUserId(id, userId);
     }
-
 
     private TagResponse toResponse(Tag tag) {
         return new TagResponse(tag.getId(), tag.getName());

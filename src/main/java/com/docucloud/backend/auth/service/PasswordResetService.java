@@ -1,5 +1,6 @@
 package com.docucloud.backend.auth.service;
 
+import com.docucloud.backend.audit.service.AuditService;
 import com.docucloud.backend.auth.model.PasswordResetToken;
 import com.docucloud.backend.auth.repository.PasswordResetTokenRepository;
 import com.docucloud.backend.common.service.EmailService;
@@ -28,6 +29,7 @@ public class PasswordResetService {
     private final PasswordResetTokenRepository tokenRepository;
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
+    private final AuditService auditService;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Value("${app.frontend.reset-password-url}")
@@ -40,12 +42,14 @@ public class PasswordResetService {
             UserRepository userRepository,
             PasswordResetTokenRepository tokenRepository,
             EmailService emailService,
-            PasswordEncoder passwordEncoder
+            PasswordEncoder passwordEncoder,
+            AuditService auditService
     ) {
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
         this.emailService = emailService;
         this.passwordEncoder = passwordEncoder;
+        this.auditService = auditService;
     }
 
     @Transactional
@@ -63,9 +67,8 @@ public class PasswordResetService {
 
         User user = userOpt.get();
 
-        // Invalida tokens pendientes anteriores
         tokenRepository.deleteByUserAndUsedAtIsNull(user);
-        tokenRepository.flush(); // fuerza el DELETE antes del INSERT
+        tokenRepository.flush();
 
         Instant now = Instant.now();
         PasswordResetToken prt = new PasswordResetToken(
@@ -75,8 +78,8 @@ public class PasswordResetService {
 
         log.info("[Reset] Token guardado en BD para: {}", email);
 
-        // ✅ Envía el correo DESPUÉS del commit de la transacción
-        // Evita que un fallo de email haga rollback del token guardado
+        auditService.logBusiness(user.getId(), "FORGOT_PASSWORD", "Auth", user.getId(), true, null);
+
         String resetUrl = resetPasswordBaseUrl + "?token=" + rawToken;
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
@@ -101,7 +104,10 @@ public class PasswordResetService {
 
         prt.getUser().setPassword(passwordEncoder.encode(newPassword));
         prt.markUsed(now);
+
         log.info("[Reset] Contraseña actualizada para usuario id: {}", prt.getUser().getId());
+
+        auditService.logBusiness(prt.getUser().getId(), "RESET_PASSWORD", "Auth", prt.getUser().getId(), true, null);
     }
 
     // ─── Utilidades ───────────────────────────────────────────────────

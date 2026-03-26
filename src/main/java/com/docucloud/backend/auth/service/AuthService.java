@@ -91,17 +91,14 @@ public class AuthService {
 
         categoryService.createDefaultCategories(user);
 
-        // ← NUEVO: email de bienvenida (silencioso, no bloquea el registro)
         emailService.sendWelcome(user.getEmail(), user.getName());
 
-        // Auditoría
         ObjectNode details = objectMapper.createObjectNode();
         details.put("email", user.getEmail());
-        auditService.logBusiness(user.getId(), "AUTH_REGISTER", "Auth", user.getId(), true, details);
+        auditService.logBusiness(user.getId(), "REGISTER", "Auth", user.getId(), true, details);
     }
 
     // ─── LOGIN ────────────────────────────────────────────────────────────────
-// ─── LOGIN ────────────────────────────────────────────────────────────────
     @Transactional
     public JwtResponse login(LoginRequest request, String ip) {
         String email   = request.getEmail().toLowerCase().trim();
@@ -112,7 +109,7 @@ public class AuthService {
             ObjectNode details = objectMapper.createObjectNode();
             details.put("email", email);
             details.put("reason", "BRUTE_FORCE_LOCKED");
-            auditService.logHttp(null, "AUTH_LOGIN_BLOCKED", "Auth", null, false, ip, null, details);
+            auditService.logHttp(null, "LOGIN_BLOCKED", "Auth", null, false, ip, null, details);
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Demasiados intentos. Intenta más tarde.");
         }
@@ -124,11 +121,10 @@ public class AuthService {
             bruteForceProtectionService.onSuccess(ipKey);
 
         } catch (DisabledException ex) {
-            // Usuario bloqueado — no contar como intento fallido de fuerza bruta
             ObjectNode details = objectMapper.createObjectNode();
             details.put("email", email);
             details.put("reason", "ACCOUNT_DISABLED");
-            auditService.logHttp(null, "AUTH_LOGIN_BLOCKED_USER", "Auth", null, false, ip, null, details);
+            auditService.logHttp(null, "LOGIN_BLOCKED", "Auth", null, false, ip, null, details);
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Tu cuenta ha sido bloqueada. Contacta al administrador.");
 
@@ -139,7 +135,7 @@ public class AuthService {
             ObjectNode details = objectMapper.createObjectNode();
             details.put("email", email);
             details.put("reason", ex.getClass().getSimpleName());
-            auditService.logHttp(null, "AUTH_LOGIN_FAILURE", "Auth", null, false, ip, null, details);
+            auditService.logHttp(null, "LOGIN_FAILED", "Auth", null, false, ip, null, details);
             throw ex;
         }
 
@@ -156,7 +152,7 @@ public class AuthService {
 
         ObjectNode details = objectMapper.createObjectNode();
         details.put("email", email);
-        auditService.logHttp(user.getId(), "AUTH_LOGIN_SUCCESS", "Auth", user.getId(), true, ip, null, details);
+        auditService.logHttp(user.getId(), "LOGIN", "Auth", user.getId(), true, ip, null, details);
 
         return new JwtResponse(access, refresh, user.getId(), user.getEmail(), roles, user.getName());
     }
@@ -177,7 +173,7 @@ public class AuthService {
         ObjectNode details = objectMapper.createObjectNode();
         details.put("email", managed.getEmail());
         details.put("provider", "GOOGLE");
-        auditService.logBusiness(managed.getId(), "AUTH_LOGIN_GOOGLE", "Auth", managed.getId(), true, details);
+        auditService.logBusiness(managed.getId(), "LOGIN", "Auth", managed.getId(), true, details);
 
         return new JwtResponse(access, refresh, managed.getId(), managed.getEmail(), roles, managed.getName());
     }
@@ -190,7 +186,7 @@ public class AuthService {
 
             ObjectNode details = objectMapper.createObjectNode();
             details.put("email", email);
-            auditService.logBusiness(user.getId(), "AUTH_LOGOUT", "Auth", user.getId(), true, details);
+            auditService.logBusiness(user.getId(), "LOGOUT", "Auth", user.getId(), true, details);
         });
     }
 }
