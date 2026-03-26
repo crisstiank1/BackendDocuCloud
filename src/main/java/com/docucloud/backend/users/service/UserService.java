@@ -132,23 +132,34 @@ public class UserService {
 
     public void changePassword(Long userId, ChangePasswordRequest request) {
         User user = findById(userId);
+        boolean success = true;
 
-        if (user.getProvider() == Provider.GOOGLE && !user.isHasLocalPassword()) {
+        try {
+            if (user.getProvider() == Provider.GOOGLE && !user.isHasLocalPassword()) {
+                user.setPassword(passwordEncoder.encode(request.newPassword()));
+                user.setHasLocalPassword(true);
+                userRepository.save(user);
+                emailService.sendPasswordChanged(user.getEmail());
+                return;
+            }
+
+            if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Contraseña actual incorrecta");
+            }
+
             user.setPassword(passwordEncoder.encode(request.newPassword()));
-            user.setHasLocalPassword(true);
             userRepository.save(user);
             emailService.sendPasswordChanged(user.getEmail());
-            return;
-        }
 
-        if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Contraseña actual incorrecta");
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("email", user.getEmail());
+            auditService.logBusiness(userId, "RESET_PASSWORD", "Auth", userId, success, details);
         }
-
-        user.setPassword(passwordEncoder.encode(request.newPassword()));
-        userRepository.save(user);
-        emailService.sendPasswordChanged(user.getEmail());
     }
 
     // ── RF-27 Límites ─────────────────────────────────────────────────────────
