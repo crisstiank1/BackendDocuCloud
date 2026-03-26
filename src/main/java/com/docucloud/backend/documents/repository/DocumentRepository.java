@@ -78,12 +78,16 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
             Pageable pageable);
 
     @Query("""
-            SELECT d FROM Document d
-            WHERE d.ownerUserId = :ownerUserId
-              AND d.deletedAt IS NULL
-              AND d.status != com.docucloud.backend.documents.model.DocumentStatus.DELETED
-              AND d.classification IS NULL
-            """)
+    SELECT d FROM Document d
+    WHERE d.ownerUserId = :ownerUserId
+      AND d.deletedAt IS NULL
+      AND d.status != com.docucloud.backend.documents.model.DocumentStatus.DELETED
+      AND NOT EXISTS (
+          SELECT dc FROM DocumentCategory dc
+          WHERE dc.document.id = d.id
+          AND dc.category IS NOT NULL
+      )
+    """)
     Page<Document> findUnclassifiedByOwnerUserId(
             @Param("ownerUserId") Long ownerUserId,
             Pageable pageable);
