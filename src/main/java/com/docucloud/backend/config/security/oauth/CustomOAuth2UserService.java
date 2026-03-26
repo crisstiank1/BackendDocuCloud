@@ -14,10 +14,8 @@ public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
 
     @Override
     public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
-        System.out.println(">>> CustomOAuth2UserService.loadUser() ejecutándose");
         OAuth2UserService<OAuth2UserRequest, OAuth2User> delegate = new DefaultOAuth2UserService();
         OAuth2User oAuth2User = delegate.loadUser(userRequest);
-        System.out.println(">>> Email de Google: " + oAuth2User.getAttribute("email"));
         return oAuth2User;
     }
 }

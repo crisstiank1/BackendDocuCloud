@@ -113,7 +113,6 @@ public class SecurityConfig {
                         .userInfoEndpoint(info -> info.userService(customOAuth2UserService))
                         .successHandler(oAuth2SuccessHandler)
                         .failureHandler((request, response, exception) -> {
-                            System.out.println(">>> OAuth2 FALLÓ: " + exception.getMessage());
                             exception.printStackTrace();
                             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                             response.setContentType(MediaType.APPLICATION_JSON_VALUE);

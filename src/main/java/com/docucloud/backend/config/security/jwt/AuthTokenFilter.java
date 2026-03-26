@@ -29,8 +29,6 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        System.out.println(">>> AuthTokenFilter ejecutándose para: " + request.getRequestURI());
-        System.out.println(">>> Header Authorization: " + request.getHeader("Authorization"));
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header != null && header.startsWith("Bearer ")) {
             String token = header.substring(7);
@@ -42,12 +40,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                             new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                     auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(auth);
-                    System.out.println("✅ AuthTokenFilter: autenticado " + username); // ← log temporal
-                } else {
-                    System.out.println("❌ AuthTokenFilter: userDetails null o disabled para " + username);
                 }
-            } else {
-                System.out.println("❌ AuthTokenFilter: token inválido");
             }
         }
         filterChain.doFilter(request, response);

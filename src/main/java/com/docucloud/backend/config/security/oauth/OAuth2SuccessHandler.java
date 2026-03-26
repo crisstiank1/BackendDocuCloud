@@ -40,17 +40,14 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
                                         HttpServletResponse response,
                                         Authentication authentication) throws IOException {
 
-        System.out.println(">>> OAuth2SuccessHandler ejecutándose");
-
         OAuth2User oAuth2User = (OAuth2User) authentication.getPrincipal();
         String email   = oAuth2User.getAttribute("email");
         String name    = oAuth2User.getAttribute("name");
         String picture = oAuth2User.getAttribute("picture");
 
-        System.out.println(">>> Email: " + email);
         registrationService.saveOrUpdateUser(email, name, picture);
 
-        // ✅ findByEmailWithRoles carga los roles en la misma query — evita LazyInitializationException
+        // findByEmailWithRoles carga los roles en la misma query — evita LazyInitializationException
         User user = userRepository.findByEmailWithRoles(email)
                 .orElseThrow(() -> new RuntimeException(
                         "Error crítico: usuario no encontrado tras crearlo: " + email));
@@ -79,8 +76,6 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
                 details
         );
 
-        System.out.println(">>> Usuario guardado: " + user.getId());
-
         UserDetailsImpl userDetails = new UserDetailsImpl(user);
         String accessToken  = jwtUtils.generateAccessToken(userDetails);
         String refreshToken = refreshTokenService.createRefreshToken(user);
@@ -92,7 +87,6 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
                 .build()
                 .toUriString();
 
-        System.out.println(">>> Redirigiendo a: " + redirectUrl);
         response.sendRedirect(redirectUrl);
     }
 }

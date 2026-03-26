@@ -55,7 +55,6 @@ public class UserOAuth2RegistrationService {
             categoryService.createDefaultCategories(user);
         }
 
-        System.out.println(">>> Usuario guardado en BD: " + email + " isNew=" + isNew);
         return user;
     }
 }
