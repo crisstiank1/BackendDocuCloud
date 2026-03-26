@@ -47,10 +47,8 @@ public class BusinessAuditAspect {
                     ? pjp.getTarget().getClass().getSimpleName()
                     : audited.resourceType();
 
-            // Primero intenta resolverlo desde los argumentos (DELETE, RENAME)
             Long resourceId = resolveResourceId(pjp, audited.resourceIdArgIndex());
 
-            // Si no hay ID en args, extráelo del objeto retornado (CREATE)
             if (resourceId == null && result != null) {
                 resourceId = extractIdFromResult(result);
             }
@@ -63,14 +61,7 @@ public class BusinessAuditAspect {
                 details.put("name", resourceName);
             }
 
-            auditService.logBusiness(
-                    userId,
-                    audited.action(),
-                    resourceType,
-                    resourceId,
-                    success,
-                    details
-            );
+            auditService.logBusiness(userId, audited.action(), resourceType, resourceId, success, details);
         }
     }
 
@@ -78,14 +69,14 @@ public class BusinessAuditAspect {
         if (args == null) return null;
 
         for (Object arg : args) {
-            if (arg == null)                      continue;
-            if (arg instanceof Authentication)    continue;
-            if (arg instanceof UserDetails)        continue;
-            if (arg instanceof UserDetailsImpl)    continue;
-            if (arg instanceof Pageable)           continue;
-            if (arg instanceof Long)               continue;
-            if (arg instanceof Integer)            continue;
-            if (arg instanceof Boolean)            continue;
+            if (arg == null)                    continue;
+            if (arg instanceof Authentication)  continue;
+            if (arg instanceof UserDetails)     continue;
+            if (arg instanceof UserDetailsImpl) continue;
+            if (arg instanceof Pageable)        continue;
+            if (arg instanceof Long)            continue;
+            if (arg instanceof Integer)         continue;
+            if (arg instanceof Boolean)         continue;
 
             if (arg instanceof String s && !s.isBlank() && s.length() < 200) {
                 if (!s.contains("@") && !s.matches("[0-9a-f-]{36}")) {
@@ -93,12 +84,18 @@ public class BusinessAuditAspect {
                 }
             }
 
+            // Primero getters de clases normales, luego accessors de Java records
             String[] getterNames = {
-                    "getFileName",
-                    "getName",
-                    "getTitle",
-                    "getNewName",
-                    "getQuery",
+                    "getFileName",   // clase normal
+                    "getName",       // clase normal
+                    "getTitle",      // clase normal
+                    "getNewName",    // clase normal
+                    "getQuery",      // clase normal
+                    "fileName",      // ✅ record accessor
+                    "name",          // ✅ record accessor — CreateCategoryRequest, CreateTagRequest, etc.
+                    "title",         // ✅ record accessor
+                    "newName",       // ✅ record accessor
+                    "query",         // ✅ record accessor
             };
 
             for (String getter : getterNames) {

@@ -1,6 +1,7 @@
 package com.docucloud.backend.users.service;
 
 import com.docucloud.backend.audit.annotation.Audited;
+import com.docucloud.backend.audit.service.AuditService;
 import com.docucloud.backend.documents.service.CategoryService;
 import com.docucloud.backend.common.service.EmailService;
 import com.docucloud.backend.users.dto.request.ChangePasswordRequest;
@@ -12,18 +13,6 @@ import com.docucloud.backend.users.model.User;
 import com.docucloud.backend.users.model.UserRole;
 import com.docucloud.backend.users.repository.UserRepository;
 import com.docucloud.backend.users.repository.UserRoleRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.http.HttpStatus;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 import com.docucloud.backend.auth.repository.RefreshTokenRepository;
 import com.docucloud.backend.auth.repository.PasswordResetTokenRepository;
 import com.docucloud.backend.documents.repository.DocumentRepository;
@@ -31,8 +20,21 @@ import com.docucloud.backend.documents.repository.DocumentShareRepository;
 import com.docucloud.backend.favorites.repository.FavoriteRepository;
 import com.docucloud.backend.search.repository.SearchHistoryRepository;
 import com.docucloud.backend.audit.repository.ActivityHistoryRepository;
-import java.time.Instant;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Service
@@ -41,13 +43,13 @@ import java.util.UUID;
 @Slf4j
 public class UserService {
 
-    private final UserRepository userRepository;
-    private final UserRoleRepository userRoleRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final CategoryService categoryService;
-    private final EmailService emailService;
-
-    // ── Repositorios nuevos para eliminación en cascada ───────────────────────
+    private final UserRepository               userRepository;
+    private final UserRoleRepository           userRoleRepository;
+    private final PasswordEncoder              passwordEncoder;
+    private final CategoryService              categoryService;
+    private final EmailService                 emailService;
+    private final AuditService                 auditService;
+    private final ObjectMapper                 objectMapper;
     private final RefreshTokenRepository       refreshTokenRepository;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final ActivityHistoryRepository    activityHistoryRepository;
@@ -106,8 +108,6 @@ public class UserService {
     // ── Perfil ────────────────────────────────────────────────────────────────
 
     public UserResponse getProfile(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UsernameNotFoundException("User not found: " + userId));
         return UserResponse.from(findById(userId));
     }
 
@@ -194,7 +194,6 @@ public class UserService {
         return users.map(UserResponse::from);
     }
 
-    @Audited(action = "CHANGE_USER_ROLE", resourceType = "User", resourceIdArgIndex = 1)
     public UserResponse updateRole(Long adminId, Long targetId, String roleName) {
         if (adminId.equals(targetId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -209,65 +208,94 @@ public class UserService {
                     "Rol inválido: " + roleName + ". Valores válidos: USER, ADMIN");
         }
 
-        User user = findById(targetId);
-        userRoleRepository.deleteByUserId(targetId);
-
-        UserRole userRole = UserRole.builder()
-                .user(user)
-                .role(role)
-                .build();
-        userRoleRepository.save(userRole);
-
-        return UserResponse.from(findById(targetId));
+        User target = findById(targetId);
+        boolean success = true;
+        try {
+            userRoleRepository.deleteByUserId(targetId);
+            UserRole userRole = UserRole.builder().user(target).role(role).build();
+            userRoleRepository.save(userRole);
+            return UserResponse.from(findById(targetId));
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", target.getName());
+            details.put("email", target.getEmail());
+            details.put("role", roleName.toUpperCase());
+            auditService.logBusiness(adminId, "CHANGE_USER_ROLE", "User", targetId, success, details);
+        }
     }
 
-    @Audited(action = "UPDATE_USER", resourceType = "User", resourceIdArgIndex = 1)
     public UserResponse toggleStatus(Long adminId, Long targetId) {
         if (adminId.equals(targetId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "No puedes desactivar tu propia cuenta");
         }
-        User user = findById(targetId);
-        user.setEnabled(!user.isEnabled());
-        return UserResponse.from(userRepository.save(user));
+
+        User target = findById(targetId);
+        boolean success = true;
+        try {
+            target.setEnabled(!target.isEnabled());
+            return UserResponse.from(userRepository.save(target));
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", target.getName());
+            details.put("email", target.getEmail());
+            auditService.logBusiness(adminId, "UPDATE_USER", "User", targetId, success, details);
+        }
     }
 
-    @Audited(action = "DELETE_USER", resourceType = "User", resourceIdArgIndex = 1)
+    // ✅ Cascada completa del remoto + audit manual del stash combinados
     public void deleteUser(Long adminId, Long targetId) {
         if (adminId.equals(targetId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "No puedes eliminar tu propia cuenta");
         }
 
-        User target = findById(targetId); // lanza 404 si no existe
-
+        User target = findById(targetId);
         log.info("🗑️ Iniciando eliminación de usuario id={} email={}", targetId, target.getEmail());
 
-        // ── 1. Tokens de sesión y recuperación ───────────────────────────────
-        refreshTokenRepository.deleteByUser_Id(targetId);
-        passwordResetTokenRepository.deleteByUser_Id(targetId);
+        boolean success = true;
+        try {
+            // ── 1. Tokens de sesión y recuperación ───────────────────────────
+            refreshTokenRepository.deleteByUser_Id(targetId);
+            passwordResetTokenRepository.deleteByUser_Id(targetId);
 
-        // ── 2. Auditoría e historial ──────────────────────────────────────────
-        activityHistoryRepository.deleteByUserId(targetId);
-        searchHistoryRepository.deleteByUser_Id(targetId);
+            // ── 2. Auditoría e historial ──────────────────────────────────────
+            activityHistoryRepository.deleteByUserId(targetId);
+            searchHistoryRepository.deleteByUser_Id(targetId);
 
-        // ── 3. Favoritos ──────────────────────────────────────────────────────
-        favoriteRepository.deleteByUser_Id(targetId);
+            // ── 3. Favoritos ──────────────────────────────────────────────────
+            favoriteRepository.deleteByUser_Id(targetId);
 
-        // ── 4. Shares: revocar recibidos, borrar enviados ─────────────────────
-        documentShareRepository.revokeByRecipientEmail(target.getEmail());
-        documentShareRepository.deleteBySharedByUserId(targetId);
+            // ── 4. Shares: revocar recibidos, borrar enviados ─────────────────
+            documentShareRepository.revokeByRecipientEmail(target.getEmail());
+            documentShareRepository.deleteBySharedByUserId(targetId);
 
-        // ── 5. Documentos: soft delete ────────────────────────────────────────
-        documentRepository.softDeleteByOwnerUserId(targetId, Instant.now());
+            // ── 5. Documentos: soft delete ────────────────────────────────────
+            documentRepository.softDeleteByOwnerUserId(targetId, Instant.now());
 
-        // ── 6. Categorías del usuario (+ sus DocumentCategory) ────────────────
-        categoryService.deleteCategoriesByUserId(targetId);
+            // ── 6. Categorías del usuario (+ sus DocumentCategory) ────────────
+            categoryService.deleteCategoriesByUserId(targetId);
 
-        // ── 7. Usuario (UserRoles se borran por CASCADE ALL automáticamente) ──
-        userRepository.deleteById(targetId);
+            // ── 7. Usuario (UserRoles se borran por CASCADE ALL) ──────────────
+            userRepository.deleteById(targetId);
 
-        log.info("✅ Usuario eliminado correctamente id={} por adminId={}", targetId, adminId);
+            log.info("✅ Usuario eliminado correctamente id={} por adminId={}", targetId, adminId);
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            // ✅ nombre y email capturados antes de borrar
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", target.getName());
+            details.put("email", target.getEmail());
+            auditService.logBusiness(adminId, "DELETE_USER", "User", targetId, success, details);
+        }
     }
 
     public User findById(Long userId) {

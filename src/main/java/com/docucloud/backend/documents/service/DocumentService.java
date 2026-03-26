@@ -1,6 +1,7 @@
 package com.docucloud.backend.documents.service;
 
 import com.docucloud.backend.audit.annotation.Audited;
+import com.docucloud.backend.audit.service.AuditService;
 import com.docucloud.backend.documents.dto.request.CompleteUploadRequest;
 import com.docucloud.backend.documents.dto.request.InitUploadRequest;
 import com.docucloud.backend.documents.dto.response.DocumentResponse;
@@ -22,6 +23,8 @@ import com.docucloud.backend.tags.dto.response.TagResponse;
 import com.docucloud.backend.tags.model.Tag;
 import com.docucloud.backend.tags.repository.TagRepository;
 import com.docucloud.backend.users.repository.UserRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -47,22 +50,23 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @Transactional
-// ✅ @RequiredArgsConstructor eliminado — conflicto con constructor manual
 public class DocumentService {
 
-    private final DocumentRepository repo;
-    private final DocumentTagRepository documentTagRepository;
+    private final DocumentRepository      repo;
+    private final DocumentTagRepository   documentTagRepository;
     private final DocumentShareRepository shareRepository;
-    private final TagRepository tagRepository;
-    private final ClassifierService classifierService;
-    private final S3KeyService keyService;
-    private final S3PresignService presignService;
-    private final UserRepository userRepository;
-    private final FavoriteService favoriteService;
-    private final String bucket;
-    private final Duration putDuration;
-    private final Duration getDuration;
-    private final long maxSizeMb;
+    private final TagRepository           tagRepository;
+    private final ClassifierService       classifierService;
+    private final S3KeyService            keyService;
+    private final S3PresignService        presignService;
+    private final UserRepository          userRepository;
+    private final FavoriteService         favoriteService;
+    private final AuditService            auditService;   // ✅
+    private final ObjectMapper            objectMapper;   // ✅
+    private final String                  bucket;
+    private final Duration                putDuration;
+    private final Duration                getDuration;
+    private final long                    maxSizeMb;
 
     public DocumentService(
             DocumentRepository repo,
@@ -74,6 +78,8 @@ public class DocumentService {
             S3PresignService presignService,
             UserRepository userRepository,
             FavoriteService favoriteService,
+            AuditService auditService,          // ✅
+            ObjectMapper objectMapper,          // ✅
             @Value("${docucloud.aws.s3.bucket}") String bucket,
             @Value("${docucloud.aws.s3.presignPutMinutes:10}") long putMinutes,
             @Value("${docucloud.aws.s3.presignGetMinutes:10}") long getMinutes,
@@ -88,6 +94,8 @@ public class DocumentService {
         this.presignService        = presignService;
         this.userRepository        = userRepository;
         this.favoriteService       = favoriteService;
+        this.auditService          = auditService;
+        this.objectMapper          = objectMapper;
         this.bucket                = bucket;
         this.putDuration           = Duration.ofMinutes(putMinutes);
         this.getDuration           = Duration.ofMinutes(getMinutes);
@@ -98,7 +106,7 @@ public class DocumentService {
 
     public InitUploadResponse initUpload(Long userId, InitUploadRequest req) {
         if (req.sizeBytes() > maxSizeMb * 1024 * 1024) {
-            throw new ResponseStatusException(                    // ✅ HTTP 400 tipado
+            throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "Archivo excede " + maxSizeMb + "MB");
         }
 
@@ -122,28 +130,38 @@ public class DocumentService {
         return new InitUploadResponse(doc.getId(), url.url(), url.expiresAt(), s3Key);
     }
 
-    @Audited(action = "UPLOAD_DOCUMENT", resourceType = "Document", resourceIdArgIndex = 1)
+    // ✅ Sin @Audited — auditamos manualmente para incluir el nombre del archivo
     public void completeUpload(Long userId, Long docId, CompleteUploadRequest req) {
         Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Documento no encontrado"));
 
-        doc.setSizeBytes(req.sizeBytes());
-        doc.setFileHash(req.fileHash());
-        doc.setStatus(DocumentStatus.AVAILABLE);
-        repo.save(doc);
+        boolean success = true;
+        try {
+            doc.setSizeBytes(req.sizeBytes());
+            doc.setFileHash(req.fileHash());
+            doc.setStatus(DocumentStatus.AVAILABLE);
+            repo.save(doc);
 
-        final Long   capturedDocId  = docId;
-        final String capturedName   = doc.getFileName();
-        final Long   capturedUserId = userId;
+            final Long   capturedDocId  = docId;
+            final String capturedName   = doc.getFileName();
+            final Long   capturedUserId = userId;
 
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                log.info("🧠 Triggering async classification post-commit - docId={}", capturedDocId);
-                classifierService.classifyAndAssignAsync(capturedDocId, capturedName, capturedUserId);
-            }
-        });
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    log.info("🧠 Triggering async classification post-commit - docId={}", capturedDocId);
+                    classifierService.classifyAndAssignAsync(capturedDocId, capturedName, capturedUserId);
+                }
+            });
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", doc.getFileName());  // ✅ nombre del archivo subido
+            auditService.logBusiness(userId, "UPLOAD_DOCUMENT", "Document", docId, success, details);
+        }
     }
 
     // ─── LISTADO ──────────────────────────────────────────────────────────────
@@ -256,7 +274,7 @@ public class DocumentService {
 
     // ─── DOWNLOAD ─────────────────────────────────────────────────────────────
 
-    @Audited(action = "DOWNLOAD_DOCUMENT", resourceType = "Document", resourceIdArgIndex = 1)
+    // ✅ Sin @Audited — auditamos manualmente para incluir el nombre del archivo
     public DownloadUrlResponse getDownloadUrl(Long userId, Long docId) {
         Document doc = findDocumentForUser(userId, docId);
 
@@ -265,9 +283,19 @@ public class DocumentService {
                     HttpStatus.CONFLICT, "El documento no está disponible");
         }
 
-        PresignedUrlResponse url = presignService.presignGet(
-                doc.getS3Bucket(), doc.getS3Key(), getDuration);
-        return new DownloadUrlResponse(url.url(), url.expiresAt());
+        boolean success = true;
+        try {
+            PresignedUrlResponse url = presignService.presignGet(
+                    doc.getS3Bucket(), doc.getS3Key(), getDuration);
+            return new DownloadUrlResponse(url.url(), url.expiresAt());
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", doc.getFileName());  // ✅ nombre del archivo descargado
+            auditService.logBusiness(userId, "DOWNLOAD_DOCUMENT", "Document", docId, success, details);
+        }
     }
 
     // ─── PREVIEW ──────────────────────────────────────────────────────────────
@@ -298,16 +326,26 @@ public class DocumentService {
 
     // ─── DELETE ───────────────────────────────────────────────────────────────
 
-    @Audited(action = "DELETE_DOCUMENT", resourceType = "Document", resourceIdArgIndex = 1)
+    // ✅ Sin @Audited — auditamos manualmente para incluir el nombre del archivo
     public void softDelete(Long userId, Long docId) {
         Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Documento no encontrado"));
 
-        doc.setDeletedAt(Instant.now());
-        doc.setStatus(DocumentStatus.DELETED);
-        repo.save(doc);
-        log.info("🗑️ Document deleted - user={} doc={}", userId, docId);
+        boolean success = true;
+        try {
+            doc.setDeletedAt(Instant.now());
+            doc.setStatus(DocumentStatus.DELETED);
+            repo.save(doc);
+            log.info("🗑️ Document deleted - user={} doc={}", userId, docId);
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", doc.getFileName());  // ✅ nombre antes de marcar como eliminado
+            auditService.logBusiness(userId, "DELETE_DOCUMENT", "Document", docId, success, details);
+        }
     }
 
     // ─── TAGS ─────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 package com.docucloud.backend.documents.service;
 
-import com.docucloud.backend.audit.annotation.Audited;
+import com.docucloud.backend.audit.service.AuditService;
 import com.docucloud.backend.common.service.EmailService;
 import com.docucloud.backend.documents.dto.request.ShareRequest;
 import com.docucloud.backend.documents.dto.response.*;
@@ -13,6 +13,8 @@ import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
 import com.docucloud.backend.storage.s3.service.S3PresignService;
 import com.docucloud.backend.users.model.User;
 import com.docucloud.backend.users.repository.UserRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -36,14 +38,16 @@ import java.util.stream.Collectors;
 @Transactional
 public class ShareService {
 
-    private final DocumentRepository documentRepository;
+    private final DocumentRepository      documentRepository;
     private final DocumentShareRepository shareRepository;
-    private final S3PresignService presignService;
-    private final PasswordEncoder passwordEncoder;
-    private final EmailService emailService;
-    private final UserRepository userRepository;
-    private final String baseUrl;
-    private final long getMinutes;
+    private final S3PresignService        presignService;
+    private final PasswordEncoder         passwordEncoder;
+    private final EmailService            emailService;
+    private final UserRepository          userRepository;
+    private final AuditService            auditService;  // ✅
+    private final ObjectMapper            objectMapper;  // ✅
+    private final String                  baseUrl;
+    private final long                    getMinutes;
 
     public ShareService(
             DocumentRepository documentRepository,
@@ -52,6 +56,8 @@ public class ShareService {
             PasswordEncoder passwordEncoder,
             EmailService emailService,
             UserRepository userRepository,
+            AuditService auditService,          // ✅
+            ObjectMapper objectMapper,          // ✅
             @Value("${app.base-url}") String baseUrl,
             @Value("${docucloud.aws.s3.presignGetMinutes:10}") long getMinutes
     ) {
@@ -61,13 +67,15 @@ public class ShareService {
         this.passwordEncoder    = passwordEncoder;
         this.emailService       = emailService;
         this.userRepository     = userRepository;
+        this.auditService       = auditService;
+        this.objectMapper       = objectMapper;
         this.baseUrl            = baseUrl;
         this.getMinutes         = getMinutes;
     }
 
     // ─── 1. Crear share ───────────────────────────────────────────────────────
 
-    @Audited(action = "SHARE_DOCUMENT", resourceType = "DocumentShare", resourceIdArgIndex = 0)
+    // ✅ Sin @Audited — auditamos manualmente para incluir el nombre del documento
     public ShareResponse shareDocument(Long docId, ShareRequest request, Long userId) {
         Document doc = documentRepository
                 .findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
@@ -78,34 +86,48 @@ public class ShareService {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "Debes especificar un permiso: READ o WRITE");
 
-        DocumentShare share = DocumentShare.builder()
-                .documentId(docId)
-                .sharedByUserId(userId)
-                .permission(request.getPermission())
-                .passwordHash(request.getPassword() != null
-                        ? passwordEncoder.encode(request.getPassword()) : null)
-                .expiresAt(request.getExpiresDays() != null
-                        ? Instant.now().plus(Duration.ofDays(request.getExpiresDays())) : null)
-                .revoked(false)
-                .usedCount(0)
-                .recipientEmail(request.getRecipientEmail())
-                .build();
+        DocumentShare share = null;
+        boolean success = true;
+        try {
+            share = DocumentShare.builder()
+                    .documentId(docId)
+                    .sharedByUserId(userId)
+                    .permission(request.getPermission())
+                    .passwordHash(request.getPassword() != null
+                            ? passwordEncoder.encode(request.getPassword()) : null)
+                    .expiresAt(request.getExpiresDays() != null
+                            ? Instant.now().plus(Duration.ofDays(request.getExpiresDays())) : null)
+                    .revoked(false)
+                    .usedCount(0)
+                    .recipientEmail(request.getRecipientEmail())
+                    .build();
 
-        share = shareRepository.save(share);
+            share = shareRepository.save(share);
 
-        if (request.getRecipientEmail() != null && !request.getRecipientEmail().isBlank()) {
-            emailService.sendShareGranted(
-                    request.getRecipientEmail(),
-                    doc.getFileName(),
-                    share.getPermission().name()
-            );
+            if (request.getRecipientEmail() != null && !request.getRecipientEmail().isBlank()) {
+                emailService.sendShareGranted(
+                        request.getRecipientEmail(),
+                        doc.getFileName(),
+                        share.getPermission().name()
+                );
+            }
+
+            String shareUrl = baseUrl + "/api/documents/shares/" + share.getId() + "/access";
+            log.info("🔗 Share created - user={} doc={} shareId={} permission={} recipient={}",
+                    userId, docId, share.getId(), request.getPermission(), request.getRecipientEmail());
+
+            return new ShareResponse(shareUrl, share.getId(), share.getExpiresAt());
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", doc.getFileName());  // ✅ nombre del documento compartido
+            if (request.getRecipientEmail() != null)
+                details.put("recipient", request.getRecipientEmail());
+            auditService.logBusiness(userId, "SHARE_DOCUMENT", "DocumentShare",
+                    share != null ? null : null, success, details);
         }
-
-        String shareUrl = baseUrl + "/api/documents/shares/" + share.getId() + "/access";
-        log.info("🔗 Share created - user={} doc={} shareId={} permission={} recipient={}",
-                userId, docId, share.getId(), request.getPermission(), request.getRecipientEmail());
-
-        return new ShareResponse(shareUrl, share.getId(), share.getExpiresAt());
     }
 
     // ─── 2. Shares activos de un documento ───────────────────────────────────
@@ -136,7 +158,7 @@ public class ShareService {
 
     // ─── 3. Revocar share ─────────────────────────────────────────────────────
 
-    @Audited(action = "REVOKE_SHARE", resourceType = "DocumentShare")
+    // ✅ Sin @Audited — auditamos manualmente para incluir el nombre del documento
     public void revokeShare(UUID shareId, Long userId) {
         DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -146,17 +168,29 @@ public class ShareService {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN, "No tienes permisos para revocar este enlace");
 
-        if (share.getRecipientEmail() != null) {
-            Document doc = documentRepository
-                    .findByIdAndDeletedAtIsNull(share.getDocumentId())
-                    .orElse(null);
-            if (doc != null)
-                emailService.sendShareRevoked(share.getRecipientEmail(), doc.getFileName());
-        }
+        Document doc = documentRepository
+                .findByIdAndDeletedAtIsNull(share.getDocumentId())
+                .orElse(null);
 
-        share.setRevoked(true);
-        shareRepository.save(share);
-        log.info("🚫 Share revoked - user={} shareId={}", userId, shareId);
+        boolean success = true;
+        try {
+            if (doc != null && share.getRecipientEmail() != null)
+                emailService.sendShareRevoked(share.getRecipientEmail(), doc.getFileName());
+
+            share.setRevoked(true);
+            shareRepository.save(share);
+            log.info("🚫 Share revoked - user={} shareId={}", userId, shareId);
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", doc != null ? doc.getFileName() : "Documento eliminado");  // ✅
+            if (share.getRecipientEmail() != null)
+                details.put("recipient", share.getRecipientEmail());
+            auditService.logBusiness(userId, "REVOKE_SHARE", "DocumentShare",
+                    share.getDocumentId(), success, details);
+        }
     }
 
     // ─── 4. Acceder al enlace ─────────────────────────────────────────────────
@@ -282,14 +316,14 @@ public class ShareService {
                             .orElseThrow(() -> new ResponseStatusException(
                                     HttpStatus.NOT_FOUND, "Usuario no encontrado"));
 
-                    String thumbnailUrl = generateThumbnailUrl(doc); // ✅ una sola vez
+                    String thumbnailUrl = generateThumbnailUrl(doc);
                     return SharedWithMeResponse.from(share, doc, sharedBy, thumbnailUrl);
                 });
     }
 
     // ─── 9. Actualizar permiso ────────────────────────────────────────────────
 
-    @Audited(action = "UPDATE_SHARE_PERMISSION", resourceType = "DocumentShare")
+    // ✅ Sin @Audited — auditamos manualmente para incluir el nombre del documento
     public ShareResponse updateSharePermission(UUID shareId, Permission newPermission, Long userId) {
         DocumentShare share = shareRepository.findByIdAndRevokedFalse(shareId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -299,26 +333,37 @@ public class ShareService {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN, "No tienes permisos para modificar este enlace");
 
-        share.setPermission(newPermission);
-        shareRepository.save(share);
+        Document doc = documentRepository
+                .findByIdAndDeletedAtIsNull(share.getDocumentId())
+                .orElse(null);
 
-        if (share.getRecipientEmail() != null) {
-            Document doc = documentRepository
-                    .findByIdAndDeletedAtIsNull(share.getDocumentId())
-                    .orElse(null);
-            if (doc != null)
+        boolean success = true;
+        try {
+            share.setPermission(newPermission);
+            shareRepository.save(share);
+
+            if (share.getRecipientEmail() != null && doc != null)
                 emailService.sendPermissionChanged(
                         share.getRecipientEmail(),
                         doc.getFileName(),
                         newPermission.name()
                 );
+
+            log.info("🔄 Share permission updated - user={} shareId={} newPermission={}",
+                    userId, shareId, newPermission);
+
+            String shareUrl = baseUrl + "/api/documents/shares/" + share.getId() + "/access";
+            return new ShareResponse(shareUrl, share.getId(), share.getExpiresAt());
+        } catch (Exception ex) {
+            success = false;
+            throw ex;
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", doc != null ? doc.getFileName() : "Documento eliminado");  // ✅
+            details.put("permission", newPermission.name());
+            auditService.logBusiness(userId, "UPDATE_SHARE_PERMISSION", "DocumentShare",
+                    share.getDocumentId(), success, details);
         }
-
-        log.info("🔄 Share permission updated - user={} shareId={} newPermission={}",
-                userId, shareId, newPermission);
-
-        String shareUrl = baseUrl + "/api/documents/shares/" + share.getId() + "/access";
-        return new ShareResponse(shareUrl, share.getId(), share.getExpiresAt());
     }
 
     // ─── Destinatario elimina su propio acceso ────────────────────────────────
@@ -376,7 +421,7 @@ public class ShareService {
 
     // ─── Helper: URL presignada para miniaturas de imágenes ──────────────────
 
-    private String generateThumbnailUrl(Document doc) {   // ✅ método faltante añadido
+    private String generateThumbnailUrl(Document doc) {
         if (doc.getMimeType() == null || !doc.getMimeType().startsWith("image/")) {
             return null;
         }
