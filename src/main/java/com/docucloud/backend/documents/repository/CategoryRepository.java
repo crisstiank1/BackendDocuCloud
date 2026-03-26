@@ -38,4 +38,6 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
         GROUP BY dc.category.id
         """)
     List<Object[]> countDocumentsGroupedByCategory(@Param("userId") Long userId);
+
+    List<Category> findByOwnerUserId(Long ownerUserId);
 }

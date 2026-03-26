@@ -15,4 +15,7 @@ public interface ActivityHistoryRepository
 
     @Query("SELECT COUNT(DISTINCT a.userId) FROM ActivityHistory a WHERE a.userId IS NOT NULL")
     long countDistinctUserId();
+
+    // userId es Long directo en ActivityHistory (no relación)
+    void deleteByUserId(Long userId);
 }

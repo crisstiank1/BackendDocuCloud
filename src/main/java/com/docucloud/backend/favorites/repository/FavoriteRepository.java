@@ -55,4 +55,6 @@ public interface FavoriteRepository extends JpaRepository<Favorite, Long> {
     // ─── PENDIENTE RF-17/18 ───────────────────────────────────────────────────
     // findByUserIdAndCategoryId se agregará cuando Document tenga
     // la relación @ManyToMany categories (sprint de clasificación inteligente).
+
+    void deleteByUser_Id(Long userId);
 }

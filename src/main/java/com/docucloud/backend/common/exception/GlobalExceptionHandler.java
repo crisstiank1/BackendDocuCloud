@@ -1,6 +1,7 @@
 package com.docucloud.backend.common.exception;
 
 import com.docucloud.backend.auth.exception.TokenRefreshException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +18,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestControllerAdvice
+@Slf4j
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -34,10 +36,17 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<?> handleDup(DataIntegrityViolationException ex) {
+        String rootCause = ex.getMostSpecificCause().getMessage();
+        log.error("❌ DataIntegrityViolation: {}", rootCause);
+
+        String userMessage = (rootCause != null && rootCause.contains("Duplicate entry"))
+                ? "Ya existe un registro con esos datos"
+                : "No se puede completar la operación: existen datos relacionados";
+
         Map<String, Object> body = Map.of(
                 "timestamp", Instant.now().toString(),
-                "status", 400,
-                "message", "Datos duplicados o inválidos"
+                "status",    400,
+                "message",   userMessage
         );
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }

@@ -43,7 +43,7 @@ public class CategoryService {
                 buildCategory(user.getId(), "Proyectos", "#f97316"),
                 buildCategory(user.getId(), "Otros",     "#8b5cf6")
         );
-        categoryRepository.saveAll(defaults);   // ✅ 1 sola query en vez de 7
+        categoryRepository.saveAll(defaults);   //  1 sola query en vez de 7
     }
 
     private Category buildCategory(Long userId, String name, String color) {
@@ -60,7 +60,7 @@ public class CategoryService {
     public List<CategoryResponse> listCategories(Long userId) {
         List<Category> categories = categoryRepository.findByOwnerUserIdOrderByNameAsc(userId);
 
-        // ✅ Una sola query para todos los conteos — evita N+1
+        // Una sola query para todos los conteos — evita N+1
         Map<Long, Long> countMap = categoryRepository
                 .countDocumentsGroupedByCategory(userId)
                 .stream()
@@ -105,7 +105,7 @@ public class CategoryService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Categoría no encontrada"));
 
-        // ✅ Una sola query DELETE en vez de N deletes individuales
+        // Una sola query DELETE en vez de N deletes individuales
         documentCategoryRepository.deleteByCategory_Id(categoryId);
 
         categoryRepository.delete(category);
@@ -172,5 +172,21 @@ public class CategoryService {
         // Reutiliza el conteo individual solo aquí — es 1 sola categoría
         long count = categoryRepository.countDocumentsByCategoryId(userId, categoryId);
         return CategoryResponse.from(category, count);
+    }
+
+    @Transactional
+    public void deleteCategoriesByUserId(Long userId) {
+        List<Category> categories = categoryRepository.findByOwnerUserId(userId);
+        if (categories.isEmpty()) return;
+
+        List<Long> ids = categories.stream().map(Category::getId).toList();
+
+        // 1. Borra clasificaciones de documentos que apuntan a estas categorías
+        documentCategoryRepository.deleteByCategory_IdIn(ids);
+
+        // 2. Borra las categorías
+        categoryRepository.deleteAll(categories);
+
+        log.info("🗑️ Categorías eliminadas para userId={} → {} categorías", userId, categories.size());
     }
 }
