@@ -12,7 +12,7 @@ public class ActivityHistorySpecification {
 
     public static Specification<ActivityHistory> filter(
             Long userId, String action, String resourceType,
-            Instant from, Instant to) {
+            Instant from, Instant to, Boolean success) {
 
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -21,7 +21,7 @@ public class ActivityHistorySpecification {
                 predicates.add(cb.equal(root.get("userId"), userId));
 
             if (action != null)
-                predicates.add(cb.like(                          // ✅ consistente con resourceType
+                predicates.add(cb.like(
                         cb.upper(root.get("action")),
                         "%" + action.toUpperCase() + "%"
                 ));
@@ -34,6 +34,9 @@ public class ActivityHistorySpecification {
 
             if (to != null)
                 predicates.add(cb.lessThanOrEqualTo(root.get("createdAt"), to));
+
+            if (success != null)  // ✅
+                predicates.add(cb.equal(root.get("isSuccessful"), success));
 
             return cb.and(predicates.toArray(new Predicate[0]));
         };

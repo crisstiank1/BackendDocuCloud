@@ -30,7 +30,7 @@ public class FavoriteService {
     private final FavoriteRepository favoriteRepository;
     private final DocumentRepository documentRepository;
     private final UserRepository     userRepository;
-    private final AuditService       auditService;
+    private final AuditService       auditService;      // ← de la versión del amigo
 
     @Value("${docucloud.favorites.max-per-user:50}")
     private int maxFavoritesPerUser;
@@ -46,6 +46,7 @@ public class FavoriteService {
             favoriteRepository.delete(existing.get());
             log.info("⭐ Unfavorited - user={} doc={}", userId, documentId);
 
+            // ← Bloque de auditoría tomado de la versión del amigo
             String docName = "—";
             try {
                 docName = documentRepository.findById(documentId)
@@ -87,6 +88,7 @@ public class FavoriteService {
 
         log.info("⭐ Favorited - user={} doc={}", userId, documentId);
 
+        // ← Auditoría al agregar, de la versión del amigo
         ObjectNode details = JsonNodeFactory.instance.objectNode();
         details.put("name", document.getFileName());
         auditService.logBusiness(userId, "FAVORITE_ADD", "Document", documentId, true, details);
@@ -117,7 +119,7 @@ public class FavoriteService {
      * Batch lookup — retorna los IDs del set dado que son favoritos del usuario.
      * Usado por DocumentService para evitar N+1 al paginar listas.
      * Delega la query al repositorio con IN clause.
-     */
+     */                                                   // ← Javadoc de tu versión
     @Transactional(readOnly = true)
     public Set<Long> getFavoriteIdsByDocumentIds(Long userId, Set<Long> documentIds) {
         if (documentIds == null || documentIds.isEmpty()) return Set.of();
@@ -134,7 +136,7 @@ public class FavoriteService {
                 .documentId(doc.getId())
                 .documentName(doc.getFileName() != null ? doc.getFileName() : "sin nombre")
                 .fileType(doc.getMimeType()   != null ? doc.getMimeType()   : "unknown")
-                .sizeBytes(doc.getSizeBytes())
+                .sizeBytes(doc.getSizeBytes())              // ← de tu versión
                 .folderId(doc.getFolderId())
                 .folderName(null)
                 .favoritedAt(f.getCreatedAt())

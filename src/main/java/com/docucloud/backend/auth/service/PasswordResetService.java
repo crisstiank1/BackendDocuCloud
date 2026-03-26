@@ -62,7 +62,7 @@ public class PasswordResetService {
         var userOpt = userRepository.findByEmail(email);
         if (userOpt.isEmpty()) {
             log.warn("[Reset] Usuario no encontrado para: {}", email);
-            return; // anti-enumeración: no revelamos si existe
+            return;
         }
 
         User user = userOpt.get();
@@ -78,7 +78,11 @@ public class PasswordResetService {
 
         log.info("[Reset] Token guardado en BD para: {}", email);
 
-        auditService.logBusiness(user.getId(), "FORGOT_PASSWORD", "Auth", user.getId(), true, null);
+        // ✅ details con email para que aparezca en Recurso
+        com.fasterxml.jackson.databind.node.ObjectNode details =
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+        details.put("email", user.getEmail());
+        auditService.logBusiness(user.getId(), "FORGOT_PASSWORD", "Auth", user.getId(), true, details);
 
         String resetUrl = resetPasswordBaseUrl + "?token=" + rawToken;
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -107,7 +111,11 @@ public class PasswordResetService {
 
         log.info("[Reset] Contraseña actualizada para usuario id: {}", prt.getUser().getId());
 
-        auditService.logBusiness(prt.getUser().getId(), "RESET_PASSWORD", "Auth", prt.getUser().getId(), true, null);
+        // ✅ details con email para que aparezca en Recurso
+        com.fasterxml.jackson.databind.node.ObjectNode details =
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+        details.put("email", prt.getUser().getEmail());
+        auditService.logBusiness(prt.getUser().getId(), "RESET_PASSWORD", "Auth", prt.getUser().getId(), true, details);
     }
 
     // ─── Utilidades ───────────────────────────────────────────────────

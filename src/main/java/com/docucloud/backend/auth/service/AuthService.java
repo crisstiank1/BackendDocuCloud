@@ -112,6 +112,8 @@ public class AuthService {
             ObjectNode details = objectMapper.createObjectNode();
             details.put("email", email);
             details.put("reason", "BRUTE_FORCE_LOCKED");
+            userRepository.findByEmail(email)           // ✅
+                    .ifPresent(u -> details.put("name", u.getName()));
             auditService.logHttp(null, "LOGIN_BLOCKED", "Auth", null, false, ip, null, details);
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Demasiados intentos. Intenta más tarde.");
@@ -127,6 +129,8 @@ public class AuthService {
             ObjectNode details = objectMapper.createObjectNode();
             details.put("email", email);
             details.put("reason", "ACCOUNT_DISABLED");
+            userRepository.findByEmail(email)           // ✅
+                    .ifPresent(u -> details.put("name", u.getName()));
             auditService.logHttp(null, "LOGIN_BLOCKED", "Auth", null, false, ip, null, details);
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Tu cuenta ha sido bloqueada. Contacta al administrador.");
@@ -138,6 +142,8 @@ public class AuthService {
             ObjectNode details = objectMapper.createObjectNode();
             details.put("email", email);
             details.put("reason", ex.getClass().getSimpleName());
+            userRepository.findByEmail(email)           // ✅
+                    .ifPresent(u -> details.put("name", u.getName()));
             auditService.logHttp(null, "LOGIN_FAILED", "Auth", null, false, ip, null, details);
             throw ex;
         }
