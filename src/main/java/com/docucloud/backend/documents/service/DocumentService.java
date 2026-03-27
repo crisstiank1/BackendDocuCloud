@@ -15,6 +15,7 @@ import com.docucloud.backend.documents.repository.DocumentRepository;
 import com.docucloud.backend.documents.repository.DocumentShareRepository;
 import com.docucloud.backend.documents.repository.DocumentSpecification;
 import com.docucloud.backend.documents.repository.DocumentTagRepository;
+import com.docucloud.backend.documents.validation.AllowedFileTypes;
 import com.docucloud.backend.favorites.service.FavoriteService;
 import com.docucloud.backend.storage.s3.dto.PresignedUrlResponse;
 import com.docucloud.backend.storage.s3.service.S3KeyService;
@@ -105,6 +106,12 @@ public class DocumentService {
     // ─── UPLOAD ───────────────────────────────────────────────────────────────
 
     public InitUploadResponse initUpload(Long userId, InitUploadRequest req) {
+        if (!AllowedFileTypes.isAllowed(req.fileName())) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Tipo de archivo no permitido: " + getFileExtension(req.fileName()));
+        }
+
         if (req.sizeBytes() > maxSizeMb * 1024 * 1024) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "Archivo excede " + maxSizeMb + "MB");
@@ -129,6 +136,15 @@ public class DocumentService {
                 userId, doc.getId(), req.sizeBytes() / 1024 / 1024);
         return new InitUploadResponse(doc.getId(), url.url(), url.expiresAt(), s3Key);
     }
+
+    // Helper privado (agregar en la misma clase DocumentService)
+    private String getFileExtension(String fileName) {
+        if (fileName == null || !fileName.contains(".")) {
+            return "sin extensión";
+        }
+        return fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
+    }
+
 
     // ✅ Sin @Audited — auditamos manualmente para incluir el nombre del archivo
     public void completeUpload(Long userId, Long docId, CompleteUploadRequest req) {
