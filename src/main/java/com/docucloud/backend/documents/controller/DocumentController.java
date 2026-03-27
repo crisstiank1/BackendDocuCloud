@@ -1,10 +1,7 @@
 package com.docucloud.backend.documents.controller;
 
 import com.docucloud.backend.auth.security.UserDetailsImpl;
-import com.docucloud.backend.documents.dto.request.CompleteUploadRequest;
-import com.docucloud.backend.documents.dto.request.InitUploadRequest;
-import com.docucloud.backend.documents.dto.request.ShareRequest;
-import com.docucloud.backend.documents.dto.request.UpdateSharePermissionRequest;
+import com.docucloud.backend.documents.dto.request.*;
 import com.docucloud.backend.documents.dto.response.*;
 import com.docucloud.backend.documents.model.Document;
 import com.docucloud.backend.documents.service.CategoryService;
@@ -27,6 +24,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import com.docucloud.backend.documents.dto.request.AssignCategoryRequest;
 
 import java.util.List;
 import java.util.Map;
@@ -244,23 +242,20 @@ public class DocumentController {
         return ResponseEntity.noContent().build();
     }
 
-    // ── CATEGORÍAS ────────────────────────────────────────────────────────────
+    // ── CATEGORÍAS ────────────────────────────────────────────────────────────────
 
-    @PatchMapping("/{documentId}/category/{categoryId}")
+    @PutMapping("/{documentId}/category")
     public ResponseEntity<Void> assignCategory(
             @PathVariable Long documentId,
-            @PathVariable Long categoryId,
+            @RequestBody AssignCategoryRequest request,
             Authentication auth) {
-        categoryService.assignCategory(getUserId(auth), documentId, categoryId);
+        Long userId = getUserId(auth);
+        if (request.categoryId() == null) {
+            categoryService.removeCategory(userId, documentId);
+        } else {
+            categoryService.assignCategory(userId, documentId, request.categoryId());
+        }
         return ResponseEntity.ok().build();
-    }
-
-    @DeleteMapping("/{documentId}/category")
-    public ResponseEntity<Void> removeCategory(
-            @PathVariable Long documentId,
-            Authentication auth) {
-        categoryService.removeCategory(getUserId(auth), documentId);
-        return ResponseEntity.noContent().build();
     }
 
     // ── CARPETAS Y ELIMINACIÓN ────────────────────────────────────────────────

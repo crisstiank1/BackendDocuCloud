@@ -4,6 +4,7 @@ import com.docucloud.backend.auth.security.UserDetailsImpl;
 import com.docucloud.backend.documents.dto.request.CreateCategoryRequest;
 import com.docucloud.backend.documents.dto.response.CategoryResponse;
 import com.docucloud.backend.documents.service.CategoryService;
+import com.docucloud.backend.documents.service.ClassifierService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +12,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import com.docucloud.backend.documents.dto.response.ClassificationStatsResponse;
+import com.docucloud.backend.auth.security.UserDetailsImpl;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
 import java.util.List;
 
@@ -21,6 +25,7 @@ import java.util.List;
 public class CategoryController {
 
     private final CategoryService categoryService;
+    private final ClassifierService classifierService;
 
     // GET /api/categories
     @GetMapping
@@ -77,5 +82,11 @@ public class CategoryController {
         log.info("🗑️ removeCategory - userId={} docId={}", user.getId(), documentId);
         categoryService.removeCategory(user.getId(), documentId);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/classification/stats")
+    public ResponseEntity<ClassificationStatsResponse> getClassificationStats(
+            @AuthenticationPrincipal UserDetailsImpl userDetails) {
+        return ResponseEntity.ok(classifierService.getStats(userDetails.getId()));
     }
 }

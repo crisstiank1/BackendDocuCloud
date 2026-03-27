@@ -1,6 +1,5 @@
 package com.docucloud.backend.documents.model;
 
-import com.docucloud.backend.tags.model.Tag;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -55,16 +54,14 @@ public class Document {
     @Column(name = "folder_id")
     private Long folderId;
 
-    @OneToOne(mappedBy = "document", fetch = FetchType.EAGER, cascade = CascadeType.ALL)
+    // ← LAZY: evita N+1 en listados de documentos
+    @OneToOne(mappedBy = "document", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
     private DocumentCategory classification;
 
-    @ManyToMany
-    @JoinTable(
-            name = "document_tags",
-            joinColumns = @JoinColumn(name = "document_id"),
-            inverseJoinColumns = @JoinColumn(name = "tag_id")
-    )
-    private Set<Tag> tags = new HashSet<>();
+    // ← @ManyToMany eliminado: la tabla document_tags se gestiona
+    //   exclusivamente a través de DocumentTag + DocumentTagRepository
+    @OneToMany(mappedBy = "document", fetch = FetchType.LAZY)
+    private Set<DocumentTag> documentTags = new HashSet<>();
 
     @PrePersist
     void prePersist() {

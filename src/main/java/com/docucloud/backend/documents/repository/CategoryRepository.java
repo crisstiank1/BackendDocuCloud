@@ -18,6 +18,8 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
 
     boolean existsByOwnerUserIdAndName(Long ownerUserId, String name);
 
+    long countByOwnerUserId(Long userId);
+
     @Query("""
     SELECT COUNT(dc) FROM DocumentCategory dc
     WHERE dc.document.ownerUserId = :userId

@@ -42,8 +42,12 @@ public record DocumentResponse(
             confidence = d.getClassification().getConfidenceScore();
         }
 
-        List<String> tags = d.getTags() != null
-                ? d.getTags().stream().map(t -> t.getName()).collect(Collectors.toList())
+        // ✅ CORREGIDO: Document.documentTags → DocumentTag → Tag
+        List<String> tags = d.getDocumentTags() != null
+                ? d.getDocumentTags().stream()
+                .filter(dt -> dt.getTag() != null)
+                .map(dt -> dt.getTag().getName())
+                .collect(Collectors.toList())
                 : List.of();
 
         return new DocumentResponse(

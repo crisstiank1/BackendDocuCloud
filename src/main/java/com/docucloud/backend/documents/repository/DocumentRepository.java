@@ -126,4 +126,33 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
     @Modifying
     @Query("UPDATE Document d SET d.deletedAt = :now WHERE d.ownerUserId = :userId AND d.deletedAt IS NULL")
     void softDeleteByOwnerUserId(@Param("userId") Long userId, @Param("now") Instant now);
+
+    // ─── STATS DE CLASIFICACIÓN ───────────────────────────────────────────────────
+
+    @Query("""
+    SELECT COUNT(d) FROM Document d
+    WHERE d.ownerUserId = :userId
+      AND d.deletedAt IS NULL
+      AND d.status != com.docucloud.backend.documents.model.DocumentStatus.DELETED
+    """)
+    long countActiveByOwnerUserId(@Param("userId") Long userId);
+
+    @Query("""
+    SELECT COUNT(d) FROM Document d
+    WHERE d.ownerUserId = :userId
+      AND d.deletedAt IS NULL
+      AND d.status != com.docucloud.backend.documents.model.DocumentStatus.DELETED
+      AND d.classification IS NOT NULL
+    """)
+    long countClassifiedByOwnerUserId(@Param("userId") Long userId);
+
+    @Query("""
+    SELECT COUNT(d) FROM Document d
+    WHERE d.ownerUserId = :userId
+      AND d.deletedAt IS NULL
+      AND d.status = :status
+    """)
+    long countByOwnerUserIdAndStatusFiltered(
+            @Param("userId") Long userId,
+            @Param("status") DocumentStatus status);
 }
