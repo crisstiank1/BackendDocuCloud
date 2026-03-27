@@ -49,7 +49,7 @@ public class TagService {
             throw ex;
         } finally {
             ObjectNode details = objectMapper.createObjectNode();
-            details.put("name", tag.getName());  // ✅ nombre disponible antes de borrar
+            details.put("name", tag.getName());
             auditService.logBusiness(userId, "DELETE_TAG", "Tag", id, success, details);
         }
     }

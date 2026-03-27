@@ -24,7 +24,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import com.docucloud.backend.documents.dto.request.AssignCategoryRequest;
 
 import java.util.List;
 import java.util.Map;

@@ -23,11 +23,13 @@ import com.google.api.client.json.gson.GsonFactory;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;   // ✅ import corregido
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
@@ -90,8 +92,27 @@ public class AuthController {
                         .body(new MessageResponse("reCAPTCHA inválido"));
             }
         }
-        JwtResponse tokens = authService.login(request, httpReq.getRemoteAddr());
-        return ResponseEntity.ok(tokens);
+
+        try {
+            JwtResponse tokens = authService.login(request, httpReq.getRemoteAddr());
+            return ResponseEntity.ok(tokens);
+
+        } catch (ResponseStatusException e) {
+            return ResponseEntity.status(e.getStatusCode())
+                    .body(Map.of(
+                            "message", e.getReason() != null ? e.getReason() : "No se pudo iniciar sesión",
+                            "reason", e.getStatusCode().value() == 429 ? "ACCOUNT_TEMPORARILY_LOCKED"
+                                    : e.getStatusCode().value() == 403 ? "ACCOUNT_DISABLED"
+                                    : "AUTH_ERROR"
+                    ));
+
+        } catch (AuthenticationException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of(
+                            "message", "Correo o contraseña incorrectos.",
+                            "reason", "BAD_CREDENTIALS"
+                    ));
+        }
     }
 
     @PostMapping("/refresh")

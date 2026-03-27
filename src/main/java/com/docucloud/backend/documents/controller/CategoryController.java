@@ -3,6 +3,7 @@ package com.docucloud.backend.documents.controller;
 import com.docucloud.backend.auth.security.UserDetailsImpl;
 import com.docucloud.backend.documents.dto.request.CreateCategoryRequest;
 import com.docucloud.backend.documents.dto.response.CategoryResponse;
+import com.docucloud.backend.documents.dto.response.ClassificationStatsResponse;
 import com.docucloud.backend.documents.service.CategoryService;
 import com.docucloud.backend.documents.service.ClassifierService;
 import jakarta.validation.Valid;
@@ -12,9 +13,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import com.docucloud.backend.documents.dto.response.ClassificationStatsResponse;
-import com.docucloud.backend.auth.security.UserDetailsImpl;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
 import java.util.List;
 
@@ -27,14 +25,12 @@ public class CategoryController {
     private final CategoryService categoryService;
     private final ClassifierService classifierService;
 
-    // GET /api/categories
     @GetMapping
     public ResponseEntity<List<CategoryResponse>> list(
             @AuthenticationPrincipal UserDetailsImpl user) {
         return ResponseEntity.ok(categoryService.listCategories(user.getId()));
     }
 
-    // POST /api/categories
     @PostMapping
     public ResponseEntity<CategoryResponse> create(
             @Valid @RequestBody CreateCategoryRequest request,
@@ -44,7 +40,6 @@ public class CategoryController {
                 .body(categoryService.createCategory(user.getId(), request));
     }
 
-    // PATCH /api/categories/{categoryId}
     @PatchMapping("/{categoryId}")
     public ResponseEntity<CategoryResponse> update(
             @PathVariable Long categoryId,
@@ -54,7 +49,6 @@ public class CategoryController {
                 categoryService.updateCategory(user.getId(), categoryId, request));
     }
 
-    // DELETE /api/categories/{categoryId}
     @DeleteMapping("/{categoryId}")
     public ResponseEntity<Void> delete(
             @PathVariable Long categoryId,
@@ -63,7 +57,6 @@ public class CategoryController {
         return ResponseEntity.noContent().build();
     }
 
-    // PATCH /api/categories/{categoryId}/documents/{documentId}  ← asignar
     @PatchMapping("/{categoryId}/documents/{documentId}")
     public ResponseEntity<Void> assign(
             @PathVariable Long categoryId,
@@ -73,7 +66,6 @@ public class CategoryController {
         categoryService.assignCategory(user.getId(), documentId, categoryId);
         return ResponseEntity.ok().build();
     }
-
 
     @DeleteMapping("/documents/{documentId}")
     public ResponseEntity<Void> removeFromDocument(
