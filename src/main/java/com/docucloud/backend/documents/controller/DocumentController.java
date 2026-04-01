@@ -14,6 +14,7 @@ import com.docucloud.backend.tags.dto.response.TagResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -110,6 +111,24 @@ public class DocumentController {
         }
         return ResponseEntity.ok(documentService.searchWithFavorites(
                 userId, query, mimeType, status, fromDate, toDate, pageable));
+    }
+
+    @GetMapping("/failed")
+    public ResponseEntity<Page<DocumentResponse>> failedDocuments(
+            @PageableDefault(size = 20, sort = "updatedAt",
+                    direction = Sort.Direction.DESC) Pageable pageable,
+            Authentication auth) {
+
+        Long userId = getUserId(auth);
+        return ResponseEntity.ok(documentService.listFailedWithFavorites(userId, pageable));
+    }
+
+    @GetMapping("/{documentId}")
+    public ResponseEntity<DocumentResponse> getDocumentById(
+            @PathVariable Long documentId,
+            Authentication auth) {
+        return ResponseEntity.ok(
+                documentService.getDocumentResponseById(getUserId(auth), documentId));
     }
 
     // ── COMPARTIR (SHARE) ─────────────────────────────────────────────────────

@@ -28,6 +28,12 @@ public interface DocumentRepository extends JpaRepository<Document, Long>,
     Page<Document> findByOwnerUserIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
             Long ownerUserId, DocumentStatus status, Pageable pageable);
 
+    Page<Document> findByOwnerUserIdAndStatusAndDeletedAtIsNull(
+            Long ownerUserId,
+            DocumentStatus status,
+            Pageable pageable
+    );
+
     // ─── CARPETAS ─────────────────────────────────────────────────────────────
 
     Page<Document> findByOwnerUserIdAndFolderIdAndDeletedAtIsNull(

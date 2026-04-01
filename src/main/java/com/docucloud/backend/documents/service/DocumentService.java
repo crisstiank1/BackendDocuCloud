@@ -1,6 +1,5 @@
 package com.docucloud.backend.documents.service;
 
-import com.docucloud.backend.audit.annotation.Audited;
 import com.docucloud.backend.audit.service.AuditService;
 import com.docucloud.backend.documents.dto.request.CompleteUploadRequest;
 import com.docucloud.backend.documents.dto.request.InitUploadRequest;
@@ -53,21 +52,21 @@ import java.util.stream.Collectors;
 @Transactional
 public class DocumentService {
 
-    private final DocumentRepository      repo;
-    private final DocumentTagRepository   documentTagRepository;
+    private final DocumentRepository repo;
+    private final DocumentTagRepository documentTagRepository;
     private final DocumentShareRepository shareRepository;
-    private final TagRepository           tagRepository;
-    private final ClassifierService       classifierService;
-    private final S3KeyService            keyService;
-    private final S3PresignService        presignService;
-    private final UserRepository          userRepository;
-    private final FavoriteService         favoriteService;
-    private final AuditService            auditService;   // ✅
-    private final ObjectMapper            objectMapper;   // ✅
-    private final String                  bucket;
-    private final Duration                putDuration;
-    private final Duration                getDuration;
-    private final long                    maxSizeMb;
+    private final TagRepository tagRepository;
+    private final ClassifierService classifierService;
+    private final S3KeyService keyService;
+    private final S3PresignService presignService;
+    private final UserRepository userRepository;
+    private final FavoriteService favoriteService;
+    private final AuditService auditService;
+    private final ObjectMapper objectMapper;
+    private final String bucket;
+    private final Duration putDuration;
+    private final Duration getDuration;
+    private final long maxSizeMb;
 
     public DocumentService(
             DocumentRepository repo,
@@ -79,28 +78,28 @@ public class DocumentService {
             S3PresignService presignService,
             UserRepository userRepository,
             FavoriteService favoriteService,
-            AuditService auditService,          // ✅
-            ObjectMapper objectMapper,          // ✅
+            AuditService auditService,
+            ObjectMapper objectMapper,
             @Value("${docucloud.aws.s3.bucket}") String bucket,
             @Value("${docucloud.aws.s3.presignPutMinutes:10}") long putMinutes,
             @Value("${docucloud.aws.s3.presignGetMinutes:10}") long getMinutes,
             @Value("${app.document.max-size-mb:50}") long maxSizeMb
     ) {
-        this.repo                  = repo;
+        this.repo = repo;
         this.documentTagRepository = documentTagRepository;
-        this.shareRepository       = shareRepository;
-        this.tagRepository         = tagRepository;
-        this.classifierService     = classifierService;
-        this.keyService            = keyService;
-        this.presignService        = presignService;
-        this.userRepository        = userRepository;
-        this.favoriteService       = favoriteService;
-        this.auditService          = auditService;
-        this.objectMapper          = objectMapper;
-        this.bucket                = bucket;
-        this.putDuration           = Duration.ofMinutes(putMinutes);
-        this.getDuration           = Duration.ofMinutes(getMinutes);
-        this.maxSizeMb             = maxSizeMb;
+        this.shareRepository = shareRepository;
+        this.tagRepository = tagRepository;
+        this.classifierService = classifierService;
+        this.keyService = keyService;
+        this.presignService = presignService;
+        this.userRepository = userRepository;
+        this.favoriteService = favoriteService;
+        this.auditService = auditService;
+        this.objectMapper = objectMapper;
+        this.bucket = bucket;
+        this.putDuration = Duration.ofMinutes(putMinutes);
+        this.getDuration = Duration.ofMinutes(getMinutes);
+        this.maxSizeMb = maxSizeMb;
     }
 
     // ─── UPLOAD ───────────────────────────────────────────────────────────────
@@ -137,7 +136,6 @@ public class DocumentService {
         return new InitUploadResponse(doc.getId(), url.url(), url.expiresAt(), s3Key);
     }
 
-    // Helper privado (agregar en la misma clase DocumentService)
     private String getFileExtension(String fileName) {
         if (fileName == null || !fileName.contains(".")) {
             return "sin extensión";
@@ -145,8 +143,6 @@ public class DocumentService {
         return fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
     }
 
-
-    // ✅ Sin @Audited — auditamos manualmente para incluir el nombre del archivo
     public void completeUpload(Long userId, Long docId, CompleteUploadRequest req) {
         Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -159,9 +155,9 @@ public class DocumentService {
             doc.setStatus(DocumentStatus.AVAILABLE);
             repo.save(doc);
 
-            final Long   capturedDocId  = docId;
-            final String capturedName   = doc.getFileName();
-            final Long   capturedUserId = userId;
+            final Long capturedDocId = docId;
+            final String capturedName = doc.getFileName();
+            final Long capturedUserId = userId;
 
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -175,7 +171,7 @@ public class DocumentService {
             throw ex;
         } finally {
             ObjectNode details = objectMapper.createObjectNode();
-            details.put("name", doc.getFileName());  // ✅ nombre del archivo subido
+            details.put("name", doc.getFileName());
             auditService.logBusiness(userId, "UPLOAD_DOCUMENT", "Document", docId, success, details);
         }
     }
@@ -226,6 +222,29 @@ public class DocumentService {
     @Transactional(readOnly = true)
     public Page<Document> getActivityHistory(Long userId, Pageable pageable) {
         return getRecentDocuments(userId, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<DocumentResponse> listFailedWithFavorites(Long userId, Pageable pageable) {
+        Page<Document> page = repo.findByOwnerUserIdAndStatusAndDeletedAtIsNull(
+                userId,
+                DocumentStatus.FAILED,
+                pageable
+        );
+
+        Set<Long> favIds = getFavoriteIds(userId, page);
+        return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
+    }
+
+    @Transactional(readOnly = true)
+    public DocumentResponse getDocumentResponseById(Long userId, Long documentId) {
+        Document doc = findDocumentForUser(userId, documentId);
+
+        boolean isFavorite = favoriteService
+                .getFavoriteIdsByDocumentIds(userId, Set.of(documentId))
+                .contains(documentId);
+
+        return DocumentResponse.from(doc, isFavorite);
     }
 
     // ─── BÚSQUEDA ─────────────────────────────────────────────────────────────
@@ -290,7 +309,6 @@ public class DocumentService {
 
     // ─── DOWNLOAD ─────────────────────────────────────────────────────────────
 
-    // ✅ Sin @Audited — auditamos manualmente para incluir el nombre del archivo
     public DownloadUrlResponse getDownloadUrl(Long userId, Long docId) {
         Document doc = findDocumentForUser(userId, docId);
 
@@ -309,7 +327,7 @@ public class DocumentService {
             throw ex;
         } finally {
             ObjectNode details = objectMapper.createObjectNode();
-            details.put("name", doc.getFileName());  // ✅ nombre del archivo descargado
+            details.put("name", doc.getFileName());
             auditService.logBusiness(userId, "DOWNLOAD_DOCUMENT", "Document", docId, success, details);
         }
     }
@@ -342,7 +360,6 @@ public class DocumentService {
 
     // ─── DELETE ───────────────────────────────────────────────────────────────
 
-    // ✅ Sin @Audited — auditamos manualmente para incluir el nombre del archivo
     public void softDelete(Long userId, Long docId) {
         Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -359,7 +376,7 @@ public class DocumentService {
             throw ex;
         } finally {
             ObjectNode details = objectMapper.createObjectNode();
-            details.put("name", doc.getFileName());  // ✅ nombre antes de marcar como eliminado
+            details.put("name", doc.getFileName());
             auditService.logBusiness(userId, "DELETE_DOCUMENT", "Document", docId, success, details);
         }
     }
