@@ -138,9 +138,7 @@ public class DocumentService {
     }
 
     private String getFileExtension(String fileName) {
-        if (fileName == null || !fileName.contains(".")) {
-            return "sin extensión";
-        }
+        if (fileName == null || !fileName.contains(".")) return "sin extensión";
         return fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
     }
 
@@ -177,6 +175,18 @@ public class DocumentService {
         }
     }
 
+    // ─── THUMBNAIL HELPER ────────────────────────────────────────────────────
+    //
+    // ✅ FIX: genera URL presignada de S3 solo para imágenes.
+    // Se usa en todos los métodos que construyen DocumentResponse.
+    //
+    private String resolveThumbnailUrl(Document doc) {
+        if (doc.getMimeType() != null && doc.getMimeType().startsWith("image/")) {
+            return presignService.presignGet(doc.getS3Bucket(), doc.getS3Key(), getDuration).url();
+        }
+        return null;
+    }
+
     // ─── LISTADO ──────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
@@ -184,11 +194,16 @@ public class DocumentService {
         return repo.findAllByOwnerUserIdAndDeletedAtIsNull(userId, pageable);
     }
 
+    // ✅ FIX: todos los métodos de listado usan resolveThumbnailUrl()
     @Transactional(readOnly = true)
     public Page<DocumentResponse> listWithFavorites(Long userId, Pageable pageable) {
         Page<Document> page = repo.findAllByOwnerUserIdAndDeletedAtIsNull(userId, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
-        return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
+        return page.map(doc -> DocumentResponse.from(
+                doc,
+                favIds.contains(doc.getId()),
+                resolveThumbnailUrl(doc)
+        ));
     }
 
     @Transactional(readOnly = true)
@@ -196,14 +211,22 @@ public class DocumentService {
             Long userId, Long categoryId, Pageable pageable) {
         Page<Document> page = repo.findByOwnerUserIdAndCategoryId(userId, categoryId, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
-        return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
+        return page.map(doc -> DocumentResponse.from(
+                doc,
+                favIds.contains(doc.getId()),
+                resolveThumbnailUrl(doc)
+        ));
     }
 
     @Transactional(readOnly = true)
     public Page<DocumentResponse> listUnclassified(Long userId, Pageable pageable) {
         Page<Document> page = repo.findUnclassifiedByOwnerUserId(userId, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
-        return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
+        return page.map(doc -> DocumentResponse.from(
+                doc,
+                favIds.contains(doc.getId()),
+                resolveThumbnailUrl(doc)
+        ));
     }
 
     @Transactional(readOnly = true)
@@ -217,7 +240,11 @@ public class DocumentService {
         Page<Document> page = repo.findByOwnerUserIdAndStatusAndDeletedAtIsNullOrderByCreatedAtDesc(
                 userId, DocumentStatus.AVAILABLE, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
-        return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
+        return page.map(doc -> DocumentResponse.from(
+                doc,
+                favIds.contains(doc.getId()),
+                resolveThumbnailUrl(doc)
+        ));
     }
 
     @Transactional(readOnly = true)
@@ -228,24 +255,22 @@ public class DocumentService {
     @Transactional(readOnly = true)
     public Page<DocumentResponse> listFailedWithFavorites(Long userId, Pageable pageable) {
         Page<Document> page = repo.findByOwnerUserIdAndStatusAndDeletedAtIsNull(
-                userId,
-                DocumentStatus.FAILED,
-                pageable
-        );
-
+                userId, DocumentStatus.FAILED, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
-        return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
+        return page.map(doc -> DocumentResponse.from(
+                doc,
+                favIds.contains(doc.getId()),
+                resolveThumbnailUrl(doc)
+        ));
     }
 
     @Transactional(readOnly = true)
     public DocumentResponse getDocumentResponseById(Long userId, Long documentId) {
         Document doc = findDocumentForUser(userId, documentId);
-
         boolean isFavorite = favoriteService
                 .getFavoriteIdsByDocumentIds(userId, Set.of(documentId))
                 .contains(documentId);
-
-        return DocumentResponse.from(doc, isFavorite);
+        return DocumentResponse.from(doc, isFavorite, resolveThumbnailUrl(doc));
     }
 
     // ─── BÚSQUEDA ─────────────────────────────────────────────────────────────
@@ -305,7 +330,11 @@ public class DocumentService {
         Page<Document> page = search(
                 userId, query, mimeType, statusParam, fromDate, toDate, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
-        return page.map(doc -> DocumentResponse.from(doc, favIds.contains(doc.getId())));
+        return page.map(doc -> DocumentResponse.from(
+                doc,
+                favIds.contains(doc.getId()),
+                resolveThumbnailUrl(doc)
+        ));
     }
 
     // ─── DOWNLOAD ─────────────────────────────────────────────────────────────
@@ -467,7 +496,7 @@ public class DocumentService {
                 "Documento no encontrado o acceso denegado");
     }
 
-    // ─── UPDATE METADATA ──────────────────────────────────────────────────────────
+    // ─── UPDATE METADATA ──────────────────────────────────────────────────────
 
     @Transactional
     public DocumentResponse updateMetadata(Long userId, Long docId, UpdateMetadataRequest req) {
@@ -477,11 +506,9 @@ public class DocumentService {
 
         boolean success = true;
         try {
-            // Renombrar si viene el campo
             if (req.fileName() != null && !req.fileName().isBlank()) {
                 String newName = req.fileName().trim();
 
-                // Validar extensión: no permitir cambiar el tipo de archivo
                 String oldExt = getFileExtension(doc.getFileName()).toLowerCase();
                 String newExt = getFileExtension(newName).toLowerCase();
                 if (!oldExt.equals(newExt)) {
@@ -515,6 +542,7 @@ public class DocumentService {
                 .getFavoriteIdsByDocumentIds(userId, Set.of(docId))
                 .contains(docId);
 
-        return DocumentResponse.from(doc, isFavorite);
+        // updateMetadata también retorna thumbnailUrl
+        return DocumentResponse.from(doc, isFavorite, resolveThumbnailUrl(doc));
     }
 }
