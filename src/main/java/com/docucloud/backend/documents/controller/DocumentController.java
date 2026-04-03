@@ -276,6 +276,17 @@ public class DocumentController {
         return ResponseEntity.ok().build();
     }
 
+    // ── METADATOS (RENAME) ────────────────────────────────────────────────────────
+
+    @PatchMapping("/{documentId}")
+    public ResponseEntity<DocumentResponse> updateMetadata(
+            @PathVariable Long documentId,
+            @RequestBody @Valid UpdateMetadataRequest request,
+            Authentication auth) {
+        return ResponseEntity.ok(
+                documentService.updateMetadata(getUserId(auth), documentId, request));
+    }
+
     // ── CARPETAS Y ELIMINACIÓN ────────────────────────────────────────────────
 
     @PatchMapping("/{docId}/folder/{folderId}")

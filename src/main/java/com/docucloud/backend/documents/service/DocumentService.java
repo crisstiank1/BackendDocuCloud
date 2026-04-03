@@ -3,6 +3,7 @@ package com.docucloud.backend.documents.service;
 import com.docucloud.backend.audit.service.AuditService;
 import com.docucloud.backend.documents.dto.request.CompleteUploadRequest;
 import com.docucloud.backend.documents.dto.request.InitUploadRequest;
+import com.docucloud.backend.documents.dto.request.UpdateMetadataRequest;
 import com.docucloud.backend.documents.dto.response.DocumentResponse;
 import com.docucloud.backend.documents.dto.response.DownloadUrlResponse;
 import com.docucloud.backend.documents.dto.response.InitUploadResponse;
@@ -464,5 +465,56 @@ public class DocumentService {
 
         throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                 "Documento no encontrado o acceso denegado");
+    }
+
+    // ─── UPDATE METADATA ──────────────────────────────────────────────────────────
+
+    @Transactional
+    public DocumentResponse updateMetadata(Long userId, Long docId, UpdateMetadataRequest req) {
+        Document doc = repo.findByIdAndOwnerUserIdAndDeletedAtIsNull(docId, userId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Documento no encontrado"));
+
+        boolean success = true;
+        try {
+            // Renombrar si viene el campo
+            if (req.fileName() != null && !req.fileName().isBlank()) {
+                String newName = req.fileName().trim();
+
+                // Validar extensión: no permitir cambiar el tipo de archivo
+                String oldExt = getFileExtension(doc.getFileName()).toLowerCase();
+                String newExt = getFileExtension(newName).toLowerCase();
+                if (!oldExt.equals(newExt)) {
+                    throw new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST,
+                            "No se puede cambiar la extensión del archivo (." +
+                                    oldExt + " → ." + newExt + ")");
+                }
+
+                doc.setFileName(newName);
+            }
+
+            doc = repo.save(doc);
+            log.info("✏️ Metadata updated - user={} doc={} newName={}", userId, docId, doc.getFileName());
+
+        } catch (ResponseStatusException ex) {
+            success = false;
+            throw ex;
+        } catch (Exception ex) {
+            success = false;
+            log.error("❌ Error updating metadata for doc={}", docId, ex);
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR, "Error al actualizar el documento");
+        } finally {
+            ObjectNode details = objectMapper.createObjectNode();
+            details.put("name", doc.getFileName());
+            auditService.logBusiness(userId, "UPDATE_METADATA", "Document", docId, success, details);
+        }
+
+        boolean isFavorite = favoriteService
+                .getFavoriteIdsByDocumentIds(userId, Set.of(docId))
+                .contains(docId);
+
+        return DocumentResponse.from(doc, isFavorite);
     }
 }
