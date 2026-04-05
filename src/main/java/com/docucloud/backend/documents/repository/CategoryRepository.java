@@ -16,6 +16,8 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
 
     Optional<Category> findByOwnerUserIdAndName(Long ownerUserId, String name);
 
+    Optional<Category> findByOwnerUserIdAndNameIgnoreCase(Long ownerUserId, String name);
+
     boolean existsByOwnerUserIdAndName(Long ownerUserId, String name);
 
     long countByOwnerUserId(Long userId);
@@ -28,10 +30,9 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
     """)
     long countDocumentsByCategoryId(
             @Param("userId") Long userId,
-            @Param("categoryId") Long categoryId);
+            @Param("categoryId") Long categoryId
+    );
 
-
-    // CategoryRepository.java
     @Query("""
         SELECT dc.category.id, COUNT(dc)
         FROM DocumentCategory dc

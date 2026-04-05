@@ -24,6 +24,8 @@ import java.util.Map;
 @Slf4j
 public class ClassifierService {
 
+    private static final String FALLBACK_CATEGORY = "Otros";
+
     private final CategoryRepository categoryRepo;
     private final DocumentCategoryRepository docCatRepo;
     private final DocumentRepository documentRepo;
@@ -39,7 +41,6 @@ public class ClassifierService {
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Documento no encontrado: " + documentId));
 
-        // Si ya tiene categoría manual, no sobreescribir
         if (doc.getClassification() != null &&
                 Boolean.FALSE.equals(doc.getClassification().getIsAutomaticallyAssigned())) {
             log.info("⏭️ Doc {} ya tiene categoría manual, saltando AI", documentId);
@@ -49,25 +50,30 @@ public class ClassifierService {
         try {
             ClassifyResponse resp = callClassifier(fileName);
 
-            String categoryName = resp.category() != null && !resp.category().isBlank()
-                    ? resp.category().trim()
-                    : "Otros";
-            double confidence = resp.confidence();
+            String predictedName = normalizeCategoryName(resp.category());
+            double predictedConfidence = resp.confidence();
 
-            log.info("🧠 AI: {} → {} (conf: {})", fileName, categoryName, confidence);
+            ResolvedCategory resolved = resolvePredictedOrFallback(userId, predictedName);
 
-            Category category = resolveCategory(userId, categoryName);
-            if (category == null) {
+            if (resolved.category() == null) {
                 markAsUnclassified(
                         doc,
-                        "No existe categoría '" + categoryName + "' para user=" + userId
+                        "No existe categoría predicha ni fallback '" + FALLBACK_CATEGORY + "' para user=" + userId
                 );
                 return;
             }
 
-            saveClassification(doc, category, confidence);
-            log.info("✅ Clasificación guardada: doc={} → cat='{}' conf={}",
-                    documentId, categoryName, confidence);
+            double appliedConfidence = resolved.fallbackUsed() ? 0.0 : predictedConfidence;
+
+            saveClassification(doc, resolved.category(), appliedConfidence);
+
+            log.info(
+                    "✅ Clasificación guardada: doc={} predicted='{}' assigned='{}' conf={}",
+                    documentId,
+                    predictedName,
+                    resolved.category().getName(),
+                    appliedConfidence
+            );
 
         } catch (Exception e) {
             markAsFailed(doc, e.getMessage());
@@ -88,18 +94,41 @@ public class ClassifierService {
 
     private ClassifyResponse callClassifier(String fileName) {
         Map<String, String> payload = Map.of("file_name", fileName);
+
         ClassifyResponse resp = restTemplate.postForObject(
                 classifierUrl + "/classify",
                 payload,
                 ClassifyResponse.class
         );
 
-        return resp != null ? resp : new ClassifyResponse("Otros", 0.0);
+        return resp != null ? resp : new ClassifyResponse(null, 0.0);
     }
 
-    private Category resolveCategory(Long userId, String categoryName) {
-        return categoryRepo.findByOwnerUserIdAndName(userId, categoryName)
+    private String normalizeCategoryName(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        return raw.trim();
+    }
+
+    private ResolvedCategory resolvePredictedOrFallback(Long userId, String predictedName) {
+        if (predictedName != null) {
+            Category predicted = categoryRepo
+                    .findByOwnerUserIdAndNameIgnoreCase(userId, predictedName)
+                    .orElse(null);
+
+            if (predicted != null) {
+                return new ResolvedCategory(predicted, false);
+            }
+        }
+
+        Category otros = categoryRepo
+                .findByOwnerUserIdAndNameIgnoreCase(userId, FALLBACK_CATEGORY)
                 .orElse(null);
+
+        if (otros != null) {
+            return new ResolvedCategory(otros, true);
+        }
+
+        return new ResolvedCategory(null, true);
     }
 
     private void saveClassification(Document doc, Category category, double confidence) {
@@ -140,4 +169,5 @@ public class ClassifierService {
     }
 
     private record ClassifyResponse(String category, double confidence) {}
+    private record ResolvedCategory(Category category, boolean fallbackUsed) {}
 }
