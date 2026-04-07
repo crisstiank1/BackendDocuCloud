@@ -42,10 +42,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -175,11 +172,8 @@ public class DocumentService {
         }
     }
 
-    // ─── THUMBNAIL HELPER ────────────────────────────────────────────────────
-    //
-    // ✅ FIX: genera URL presignada de S3 solo para imágenes.
-    // Se usa en todos los métodos que construyen DocumentResponse.
-    //
+    // ─── THUMBNAIL HELPER ─────────────────────────────────────────────────────
+
     private String resolveThumbnailUrl(Document doc) {
         if (doc.getMimeType() != null && doc.getMimeType().startsWith("image/")) {
             return presignService.presignGet(doc.getS3Bucket(), doc.getS3Key(), getDuration).url();
@@ -194,16 +188,12 @@ public class DocumentService {
         return repo.findAllByOwnerUserIdAndDeletedAtIsNull(userId, pageable);
     }
 
-    // ✅ FIX: todos los métodos de listado usan resolveThumbnailUrl()
     @Transactional(readOnly = true)
     public Page<DocumentResponse> listWithFavorites(Long userId, Pageable pageable) {
         Page<Document> page = repo.findAllByOwnerUserIdAndDeletedAtIsNull(userId, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
         return page.map(doc -> DocumentResponse.from(
-                doc,
-                favIds.contains(doc.getId()),
-                resolveThumbnailUrl(doc)
-        ));
+                doc, favIds.contains(doc.getId()), resolveThumbnailUrl(doc)));
     }
 
     @Transactional(readOnly = true)
@@ -212,10 +202,7 @@ public class DocumentService {
         Page<Document> page = repo.findByOwnerUserIdAndCategoryId(userId, categoryId, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
         return page.map(doc -> DocumentResponse.from(
-                doc,
-                favIds.contains(doc.getId()),
-                resolveThumbnailUrl(doc)
-        ));
+                doc, favIds.contains(doc.getId()), resolveThumbnailUrl(doc)));
     }
 
     @Transactional(readOnly = true)
@@ -223,10 +210,7 @@ public class DocumentService {
         Page<Document> page = repo.findUnclassifiedByOwnerUserId(userId, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
         return page.map(doc -> DocumentResponse.from(
-                doc,
-                favIds.contains(doc.getId()),
-                resolveThumbnailUrl(doc)
-        ));
+                doc, favIds.contains(doc.getId()), resolveThumbnailUrl(doc)));
     }
 
     @Transactional(readOnly = true)
@@ -241,10 +225,7 @@ public class DocumentService {
                 userId, DocumentStatus.AVAILABLE, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
         return page.map(doc -> DocumentResponse.from(
-                doc,
-                favIds.contains(doc.getId()),
-                resolveThumbnailUrl(doc)
-        ));
+                doc, favIds.contains(doc.getId()), resolveThumbnailUrl(doc)));
     }
 
     @Transactional(readOnly = true)
@@ -258,10 +239,7 @@ public class DocumentService {
                 userId, DocumentStatus.FAILED, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
         return page.map(doc -> DocumentResponse.from(
-                doc,
-                favIds.contains(doc.getId()),
-                resolveThumbnailUrl(doc)
-        ));
+                doc, favIds.contains(doc.getId()), resolveThumbnailUrl(doc)));
     }
 
     @Transactional(readOnly = true)
@@ -331,10 +309,7 @@ public class DocumentService {
                 userId, query, mimeType, statusParam, fromDate, toDate, pageable);
         Set<Long> favIds = getFavoriteIds(userId, page);
         return page.map(doc -> DocumentResponse.from(
-                doc,
-                favIds.contains(doc.getId()),
-                resolveThumbnailUrl(doc)
-        ));
+                doc, favIds.contains(doc.getId()), resolveThumbnailUrl(doc)));
     }
 
     // ─── DOWNLOAD ─────────────────────────────────────────────────────────────
@@ -456,6 +431,34 @@ public class DocumentService {
                 .collect(Collectors.toList());
     }
 
+    // ✅ NUEVO — batch de tags: 1 query para N documentos
+    @Transactional(readOnly = true)
+    public Map<Long, List<TagResponse>> getTagsBatch(Long userId, List<Long> documentIds) {
+        if (documentIds == null || documentIds.isEmpty()) return Collections.emptyMap();
+
+        // Filtra solo IDs que pertenecen al usuario (seguridad)
+        List<Long> ownedIds = repo
+                .findAllByOwnerUserIdAndDeletedAtIsNull(userId, org.springframework.data.domain.Pageable.unpaged())
+                .getContent()
+                .stream()
+                .map(Document::getId)
+                .filter(documentIds::contains)
+                .toList();
+
+        if (ownedIds.isEmpty()) return Collections.emptyMap();
+
+        // 1 sola query para todos los tags
+        return documentTagRepository.findByDocumentIdIn(ownedIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        dt -> dt.getDocument().getId(),
+                        Collectors.mapping(
+                                dt -> new TagResponse(dt.getTag().getId(), dt.getTag().getName()),
+                                Collectors.toList()
+                        )
+                ));
+    }
+
     // ─── STORAGE ──────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
@@ -542,7 +545,6 @@ public class DocumentService {
                 .getFavoriteIdsByDocumentIds(userId, Set.of(docId))
                 .contains(docId);
 
-        // updateMetadata también retorna thumbnailUrl
         return DocumentResponse.from(doc, isFavorite, resolveThumbnailUrl(doc));
     }
 }

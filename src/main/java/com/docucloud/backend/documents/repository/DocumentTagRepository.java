@@ -11,7 +11,7 @@ import java.util.Optional;
 @Repository
 public interface DocumentTagRepository extends JpaRepository<DocumentTag, DocumentTagId> {
 
-    // Listar tags de documento
+    // Listar tags de un documento
     List<DocumentTag> findByDocumentId(Long documentId);
 
     // Eliminar relación específica
@@ -19,4 +19,7 @@ public interface DocumentTagRepository extends JpaRepository<DocumentTag, Docume
 
     // Verificar si existe relación (para addTag idempotente)
     Optional<DocumentTag> findByDocumentIdAndTagId(Long documentId, Long tagId);
+
+    // NUEVO — batch: todos los tags de múltiples documentos en 1 query
+    List<DocumentTag> findByDocumentIdIn(List<Long> documentIds);
 }

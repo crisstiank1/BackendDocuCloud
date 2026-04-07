@@ -47,10 +47,10 @@ public class AuthController {
     private final PasswordResetService passwordResetService;
     private final RecaptchaService recaptchaService;
 
-    @Value("${security.recaptcha.enabled:true}")   // ✅ ahora sí se inyecta
+    @Value("${security.recaptcha.enabled:true}")   // ahora sí se inyecta
     private boolean recaptchaEnabled;
 
-    @Value("${google.client-id}")                  // ✅ sacado del hardcode
+    @Value("${google.client-id}")                  // sacado del hardcode
     private String googleClientId;
 
     public AuthController(
@@ -128,7 +128,7 @@ public class AuthController {
         try {
             String idTokenString = body.get("credential");
 
-            // ✅ googleClientId inyectado desde properties, no hardcodeado
+            // googleClientId inyectado desde properties, no hardcodeado
             GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(
                     GoogleNetHttpTransport.newTrustedTransport(),
                     GsonFactory.getDefaultInstance())
@@ -151,7 +151,7 @@ public class AuthController {
             return ResponseEntity.ok(tokens);
 
         } catch (Exception e) {
-            log.error("Error autenticando con Google", e);   // ✅ log estructurado
+            log.error("Error autenticando con Google", e);   // log estructurado
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Error autenticando con Google"));
         }
