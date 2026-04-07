@@ -242,6 +242,15 @@ public class DocumentController {
         return documentService.getDocumentTags(id, getUserId(auth));
     }
 
+    // NUEVO — batch de tags para múltiples documentos en 1 request
+    @GetMapping("/tags/batch")
+    public ResponseEntity<Map<Long, List<TagResponse>>> getTagsBatch(
+            @RequestParam List<Long> ids,
+            Authentication auth) {
+        return ResponseEntity.ok(
+                documentService.getTagsBatch(getUserId(auth), ids));
+    }
+
     @PutMapping("/{id}/tags/{tagId}")
     public ResponseEntity<Void> addTag(
             @PathVariable Long id,

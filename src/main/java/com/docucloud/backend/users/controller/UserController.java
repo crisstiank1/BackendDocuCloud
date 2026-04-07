@@ -32,7 +32,6 @@ public class UserController {
 
     @GetMapping("/me")
     public ResponseEntity<UserResponse> getProfile(Authentication auth) {
-        // ✅ System.out / try-catch de debug eliminados
         return ResponseEntity.ok(userService.getProfile(getUserId(auth)));
     }
 
