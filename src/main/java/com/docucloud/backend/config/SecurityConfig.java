@@ -28,6 +28,11 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import org.springframework.context.annotation.Bean;
+import org.springframework.security.oauth2.client.web.AuthorizationRequestRepository;
+import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizationRequestRepository;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -42,7 +47,7 @@ public class SecurityConfig {
     private final CustomOAuth2UserService customOAuth2UserService;
     private final OAuth2SuccessHandler oAuth2SuccessHandler;
     private final InactivityFilter inactivityFilter;
-    private final InMemoryOAuth2AuthorizationRequestRepository inMemoryAuthRequestRepo;
+
     private final CustomAuthorizationRequestResolver customAuthorizationRequestResolver;
 
     @Value("${app.cors.allowed-origins:http://localhost:5173}")
@@ -64,8 +69,12 @@ public class SecurityConfig {
         this.unauthorizedHandler = unauthorizedHandler;
         this.customOAuth2UserService = customOAuth2UserService;
         this.oAuth2SuccessHandler = oAuth2SuccessHandler;
-        this.inMemoryAuthRequestRepo = inMemoryAuthRequestRepo;
         this.customAuthorizationRequestResolver = customAuthorizationRequestResolver;
+    }
+
+    @Bean
+    public AuthorizationRequestRepository<OAuth2AuthorizationRequest> authorizationRequestRepository() {
+        return new HttpSessionOAuth2AuthorizationRequestRepository();
     }
 
     @Bean
@@ -73,7 +82,7 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(unauthorizedHandler)
                         .accessDeniedHandler(accessDeniedHandler())
@@ -118,7 +127,7 @@ public class SecurityConfig {
                 .oauth2Login(oauth2 -> oauth2
                         .authorizationEndpoint(auth -> auth
                                 .baseUri("/oauth2/authorization")
-                                .authorizationRequestRepository(inMemoryAuthRequestRepo)
+                                .authorizationRequestRepository(authorizationRequestRepository())
                                 .authorizationRequestResolver(customAuthorizationRequestResolver)
                         )
                         .redirectionEndpoint(redirect -> redirect
