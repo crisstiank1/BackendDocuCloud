@@ -105,6 +105,7 @@ public class SecurityConfig {
                         .requestMatchers("/login/oauth2/**").permitAll()
                         .requestMatchers("/api/dev/**").permitAll()
                         .requestMatchers("/api/documents/*/stream").permitAll()
+                        .requestMatchers("/favicon.ico").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/documents/shares/*/access").permitAll()
 
                         // Usuario autenticado
