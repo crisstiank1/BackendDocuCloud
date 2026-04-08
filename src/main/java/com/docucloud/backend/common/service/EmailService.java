@@ -2,148 +2,167 @@ package com.docucloud.backend.common.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
+
+import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
 public class EmailService {
 
-    private final JavaMailSender mailSender;
+    private final RestClient restClient;
 
-    @Value("${spring.mail.username}")
+    @Value("${app.email.from}")
     private String fromEmail;
 
-    public EmailService(JavaMailSender mailSender) {
-        this.mailSender = mailSender;
+    @Value("${app.email.from-name:DocuCloud}")
+    private String fromName;
+
+    @Value("${app.email.sendgrid.api-key}")
+    private String sendgridApiKey;
+
+    public EmailService(RestClient.Builder builder) {
+        this.restClient = builder
+                .baseUrl("https://api.sendgrid.com")
+                .build();
     }
 
-    // ─── Bienvenida al registrarse ────────────────────────────────────────────
     @Async
     public void sendWelcome(String to, String name) {
         try {
-            SimpleMailMessage msg = new SimpleMailMessage();
-            msg.setTo(to);
-            msg.setFrom(fromEmail);
-            msg.setSubject("¡Bienvenido a DocuCloud!");
-            msg.setText(
-                    "Hola " + (name != null ? name : "") + ",\n\n" +
-                            "Tu cuenta en DocuCloud fue creada exitosamente.\n" +
-                            "Ya puedes subir, organizar y compartir tus Archivos.\n\n" +
-                            "— Equipo DocuCloud"
+            sendEmail(
+                    to,
+                    "¡Bienvenido a DocuCloud!",
+                    "<p>Hola " + safe(name) + ",</p>" +
+                            "<p>Tu cuenta en <strong>DocuCloud</strong> fue creada exitosamente.</p>" +
+                            "<p>Ya puedes subir, organizar y compartir tus archivos.</p>" +
+                            "<p>— Equipo DocuCloud</p>"
             );
-            mailSender.send(msg);
             log.info("[Email] ✅ Bienvenida enviada a: {}", to);
         } catch (Exception e) {
-            log.error("[Email] ❌ Error enviando welcome a {}: {}", to, e.getMessage());
-            // Silencioso: no bloquea el registro
+            log.error("[Email] ❌ Error enviando welcome a {}: {}", to, e.getMessage(), e);
         }
     }
 
-    // ─── Recuperación de contraseña ───────────────────────────────────────────
     @Async
     public void sendPasswordResetEmail(String to, String resetUrl) {
-        log.info("[Email] Preparando correo para: {} desde: {}", to, fromEmail);
+        log.info("[Email] Preparando correo de recuperación para: {}", to);
         try {
-            SimpleMailMessage msg = new SimpleMailMessage();
-            msg.setTo(to);
-            msg.setFrom(fromEmail);
-            msg.setSubject("Recuperación de contraseña - DocuCloud");
-            msg.setText(
-                    "Recibimos una solicitud para restablecer tu contraseña.\n\n" +
-                            "Abre este enlace para crear una nueva contraseña (expira en 15 minutos):\n" +
-                            resetUrl + "\n\n" +
-                            "Si tú no solicitaste esto, ignora este correo.\n\n" +
-                            "— Equipo DocuCloud"
+            sendEmail(
+                    to,
+                    "Recuperación de contraseña - DocuCloud",
+                    "<p>Recibimos una solicitud para restablecer tu contraseña.</p>" +
+                            "<p>Abre este enlace para crear una nueva contraseña (expira en 15 minutos):</p>" +
+                            "<p><a href=\"" + resetUrl + "\">Restablecer contraseña</a></p>" +
+                            "<p>Si tú no solicitaste esto, ignora este correo.</p>" +
+                            "<p>— Equipo DocuCloud</p>"
             );
-            mailSender.send(msg);
-            log.info("[Email] ✅ Correo enviado exitosamente a: {}", to);
+            log.info("[Email] ✅ Correo de recuperación enviado a: {}", to);
         } catch (Exception e) {
-            log.error("[Email] ❌ Error enviando correo a {}: {}", to, e.getMessage(), e);
-            throw e; // relanza — el reset SÍ debe fallar si no llega el email
+            log.error("[Email] ❌ Error enviando correo de recuperación a {}: {}", to, e.getMessage(), e);
+            throw e;
         }
     }
 
-    // ─── Share concedido ──────────────────────────────────────────────────────
     @Async
     public void sendShareGranted(String to, String documentName, String permission) {
         try {
-            SimpleMailMessage msg = new SimpleMailMessage();
-            msg.setTo(to);
-            msg.setFrom(fromEmail);
-            msg.setSubject("[DocuCloud] Archivo compartido contigo");
-            msg.setText(
-                    "Se te compartió el Archivo \"" + documentName + "\" " +
-                            "con permiso de " + permission + ".\n" +
-                            "Inicia sesión en DocuCloud para verlo.\n\n" +
-                            "— Equipo DocuCloud"
+            sendEmail(
+                    to,
+                    "[DocuCloud] Archivo compartido contigo",
+                    "<p>Se te compartió el archivo <strong>\"" + safe(documentName) + "\"</strong> " +
+                            "con permiso de <strong>" + safe(permission) + "</strong>.</p>" +
+                            "<p>Inicia sesión en DocuCloud para verlo.</p>" +
+                            "<p>— Equipo DocuCloud</p>"
             );
-            mailSender.send(msg);
             log.info("[Email] ✅ Share notificado a: {}", to);
         } catch (Exception e) {
-            log.error("[Email] ❌ Error enviando shareGranted a {}: {}", to, e.getMessage());
-            // Silencioso: no bloquea el share
+            log.error("[Email] ❌ Error enviando shareGranted a {}: {}", to, e.getMessage(), e);
         }
     }
 
-    // ─── Share revocado ───────────────────────────────────────────────────────
     @Async
     public void sendShareRevoked(String to, String documentName) {
         try {
-            SimpleMailMessage msg = new SimpleMailMessage();
-            msg.setTo(to);
-            msg.setFrom(fromEmail);
-            msg.setSubject("[DocuCloud] Acceso al Archivo revocado");
-            msg.setText(
-                    "Tu acceso al Archivo \"" + documentName + "\" fue revocado.\n\n" +
-                            "— Equipo DocuCloud"
+            sendEmail(
+                    to,
+                    "[DocuCloud] Acceso al archivo revocado",
+                    "<p>Tu acceso al archivo <strong>\"" + safe(documentName) + "\"</strong> fue revocado.</p>" +
+                            "<p>— Equipo DocuCloud</p>"
             );
-            mailSender.send(msg);
             log.info("[Email] ✅ Revocación notificada a: {}", to);
         } catch (Exception e) {
-            log.error("[Email] ❌ Error enviando shareRevoked a {}: {}", to, e.getMessage());
+            log.error("[Email] ❌ Error enviando shareRevoked a {}: {}", to, e.getMessage(), e);
         }
     }
 
-    // ─── Permiso modificado ───────────────────────────────────────────────────
     @Async
     public void sendPermissionChanged(String to, String documentName, String newPermission) {
         try {
-            SimpleMailMessage msg = new SimpleMailMessage();
-            msg.setTo(to);
-            msg.setFrom(fromEmail);
-            msg.setSubject("[DocuCloud] Permisos del Archivo modificados");
-            msg.setText(
-                    "El permiso sobre \"" + documentName + "\" fue cambiado a: " +
-                            newPermission + ".\n\n" +
-                            "— Equipo DocuCloud"
+            sendEmail(
+                    to,
+                    "[DocuCloud] Permisos del archivo modificados",
+                    "<p>El permiso sobre <strong>\"" + safe(documentName) + "\"</strong> fue cambiado a: " +
+                            "<strong>" + safe(newPermission) + "</strong>.</p>" +
+                            "<p>— Equipo DocuCloud</p>"
             );
-            mailSender.send(msg);
             log.info("[Email] ✅ Cambio de permiso notificado a: {}", to);
         } catch (Exception e) {
-            log.error("[Email] ❌ Error enviando permissionChanged a {}: {}", to, e.getMessage());
+            log.error("[Email] ❌ Error enviando permissionChanged a {}: {}", to, e.getMessage(), e);
         }
     }
 
-    // ─── Contraseña cambiada ──────────────────────────────────────────────────
     @Async
     public void sendPasswordChanged(String to) {
         try {
-            SimpleMailMessage msg = new SimpleMailMessage();
-            msg.setTo(to);
-            msg.setFrom(fromEmail);
-            msg.setSubject("[DocuCloud] Contraseña actualizada");
-            msg.setText(
-                    "Tu contraseña fue cambiada exitosamente.\n" +
-                            "Si no fuiste tú, contacta soporte de inmediato.\n\n" +
-                            "— Equipo DocuCloud"
+            sendEmail(
+                    to,
+                    "[DocuCloud] Contraseña actualizada",
+                    "<p>Tu contraseña fue cambiada exitosamente.</p>" +
+                            "<p>Si no fuiste tú, contacta soporte de inmediato.</p>" +
+                            "<p>— Equipo DocuCloud</p>"
             );
-            mailSender.send(msg);
             log.info("[Email] ✅ Cambio de contraseña notificado a: {}", to);
         } catch (Exception e) {
-            log.error("[Email] ❌ Error enviando passwordChanged a {}: {}", to, e.getMessage());
+            log.error("[Email] ❌ Error enviando passwordChanged a {}: {}", to, e.getMessage(), e);
         }
+    }
+
+    private void sendEmail(String to, String subject, String html) {
+        Map<String, Object> body = Map.of(
+                "personalizations", List.of(
+                        Map.of(
+                                "to", List.of(Map.of("email", to)),
+                                "subject", subject
+                        )
+                ),
+                "from", Map.of(
+                        "email", fromEmail,
+                        "name", fromName
+                ),
+                "content", List.of(
+                        Map.of(
+                                "type", "text/html",
+                                "value", html
+                        )
+                )
+        );
+
+        restClient.post()
+                .uri("/v3/mail/send")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + sendgridApiKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .toBodilessEntity();
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 }
